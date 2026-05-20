@@ -18,6 +18,7 @@ Ejecutar el dataset gold contra el pipeline en cada PR, calcular métricas está
 - [ ] Métricas con RAGAS: `faithfulness`, `answer_relevancy`, `context_precision`, `context_recall`. Custom: `recall@5`, `MRR`.
 - [ ] Juez: Gemini Pro (configurado en RAGAS).
 - [ ] Thresholds en `tests/evals/thresholds.yaml`: faithfulness ≥0.75, answer_relevancy ≥0.8, context_precision ≥0.7, context_recall ≥0.8, recall@5 ≥0.85, MRR ≥0.6.
+- [ ] El runner registra cada ejecución de evals en Phoenix (faithfulness, answer_relevancy y demás, con timestamp y commit SHA) para alimentar el dashboard de Calidad (observabilidad).
 - [ ] Workflow `.github/workflows/eval.yml`: levanta Postgres como service, indexa corpus de prueba, ejecuta tests, comenta el PR con métricas, falla si threshold no se cumple.
 - [ ] Comentario del PR con tabla de métricas comparada con la baseline de main.
 - [ ] **Mitigación del free tier:** el gate del PR corre un subconjunto representativo del gold (~15 ejemplos, cubriendo los tipos) para no saturar los rate limits de Gemini en cada push. La suite completa (40 ejemplos) corre en un workflow programado nocturno (`schedule: cron`) o manual (`workflow_dispatch`), y actualiza la baseline de main.
