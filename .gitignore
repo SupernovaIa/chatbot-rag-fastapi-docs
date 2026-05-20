@@ -24,4 +24,4 @@ Thumbs.db
 /cc
 
 # Material de referencia del kit (briefs, specs/ADRs outline, templates) — andamiaje de construcción, no producto
-.kit/
+.briefs/
