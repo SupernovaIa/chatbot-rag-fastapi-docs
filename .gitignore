@@ -1,8 +1,21 @@
+# Secretos
 .env
 .env.*
 !.env.example
+
+# Python
 __pycache__/
 *.pyc
+
+# Node
 node_modules/
+
+# Entornos
 .venv/
+
+# Config aislado de Claude Code
 .cc-config/
+
+# Ruido del SO
+.DS_Store
+Thumbs.db
