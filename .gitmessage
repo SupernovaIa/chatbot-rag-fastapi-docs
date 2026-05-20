@@ -1,0 +1,28 @@
+# <type>(<scope>): <short summary in lower-case, no trailing dot>
+#
+# <body: what and why in English. Wrap at 72 chars.>
+#
+# <footer: breaking changes, refs to issues, co-authors>
+#
+# Types:
+#   feat:     new feature
+#   fix:      bug fix
+#   docs:     documentation only changes
+#   style:    formatting, missing semicolons, no code logic change
+#   refactor: code change that neither fixes a bug nor adds a feature
+#   perf:     performance improvement
+#   test:     adding or correcting tests
+#   build:    build system or external dependencies
+#   ci:       CI configuration
+#   chore:    other maintenance
+#   revert:   revert a previous commit
+#
+# Scopes (examples):
+#   indexing, retrieval, chat, auth, frontend, evals, security,
+#   ci, docs, infra, session
+#
+# Examples:
+#   feat(retrieval): add llm-as-reranker with rankgpt prompt
+#   fix(indexing): retry gemini embeddings on rate limit
+#   docs(adr): record decision to use pgvector as vector store
+#   chore(session): close block B
