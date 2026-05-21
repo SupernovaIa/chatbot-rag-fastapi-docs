@@ -31,7 +31,7 @@ Cerrar el bloque: PR de `feat/dataset-gold` + skill `review`. Gate listo (criter
 - [x] `backend/tests/test_validate_gold.py` — 16 tests, **16/16 verdes**.
 - [x] Verificado: los 32 pares `gold_chunks` existen en pgvector (SHA `40e33e4`).
 - [x] Ajuste en revisión: g-02 ahora con dos chunks (añadido «Data validation») para fundamentar el error HTTP 422.
-- [x] `REVIEW.md` — traza de la revisión humana firmada.
+- [x] `REVIEW.md` (andamiaje de revisión) sacado del entregable: `git rm` + ignorado vía `corpus/**/evals/REVIEW.md`. Deliverable = `gold.jsonl` + `validate_gold.py` + tests + README.
 
 ## Deuda técnica (Bloque G)
 

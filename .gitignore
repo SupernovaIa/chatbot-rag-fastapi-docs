@@ -22,3 +22,6 @@ Thumbs.db
 
 # Wrapper personal de arranque (config aislado)
 /cc
+
+# Andamiaje de revisión del dataset gold (no es deliverable)
+corpus/**/evals/REVIEW.md
