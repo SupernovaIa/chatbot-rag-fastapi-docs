@@ -77,7 +77,8 @@ def main() -> int:
     engine = create_engine(database_url, pool_pre_ping=True)
     searcher = PgVectorHybridSearcher(engine=engine, corpus_sha=corpus_sha, rrf_k=60)
     embeddings = QueryEmbeddingsAdapter(api_key=api_key)
-    llm = GeminiChatAdapter(api_key=api_key, model="gemini-3.5-flash")
+    rewrite_llm = GeminiChatAdapter(api_key=api_key, model="gemini-3.5-flash", timeout=1.5)
+    rerank_llm = GeminiChatAdapter(api_key=api_key, model="gemini-3.5-flash", timeout=5.0)
 
     gold = _load_gold()
     single_turn = [g for g in gold if g["type"] != "multi_turn"]
@@ -105,7 +106,8 @@ def main() -> int:
                 query=query,
                 embeddings=embeddings,
                 searcher=searcher,
-                llm=llm,
+                rewrite_llm=rewrite_llm,
+                rerank_llm=rerank_llm,
                 history=[],
                 candidates=20,
                 top_k=args.top_k,

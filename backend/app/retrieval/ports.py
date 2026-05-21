@@ -35,8 +35,13 @@ class HybridSearchPort(Protocol):
 
 
 class ChatLLMPort(Protocol):
-    """A minimal chat-completion port for reranker and rewriter prompts."""
+    """A minimal chat-completion port for reranker and rewriter prompts.
 
-    def complete(self, prompt: str, timeout_s: float | None = None) -> str:
+    The request timeout is a property of the concrete client (set at
+    construction), not a per-call argument: the reranker and rewriter receive
+    separate clients with their own timeouts.
+    """
+
+    def complete(self, prompt: str) -> str:
         """Return the model's text response to *prompt*."""
         ...

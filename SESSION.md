@@ -54,7 +54,7 @@ Al reanudar: gate humano. Si pasa, abrir/mergear la PR de `feat/retrieval-modula
 - [x] `prompts/reranker.md`, `prompts/rewriter.md` — versionados (metadata + placeholders `{{var}}`), cargados por `app/retrieval/prompts.py`.
 - [x] `backend/app/config.py` — `gemini_flash_model` (anclado `gemini-3.5-flash` 2026-05-21), `corpus_sha`, params de retrieval (candidatos 20, top_k 5, rrf_k 60, timeouts).
 - [x] `scripts/manual_retrieval_check.py` — recall@5/MRR/hit-rate sobre el gold (híbrido o pipeline completo).
-- [x] Tests: 87 verdes (24 de retrieval: hybrid/reranker/rewriter/orchestrator/router + `_extract_text`), Gemini y DB mockeados. Ruff limpio.
+- [x] Tests: 89 verdes (26 de retrieval: hybrid/reranker/rewriter/orchestrator/router + `_extract_text` + propagación/fallback de timeout), Gemini y DB mockeados. Ruff limpio.
 - [x] **Tracing verificado en Phoenix (dashboard):** query real por el orquestador con tracing activo contra `localhost:6006`; traza única con jerarquía `retrieve` (root) → `rewrite` / `hybrid_search` / `rerank` → `ChatGoogleGenerativeAI` (kind=LLM, auto-instrumentado por OpenInference). Atributos por fase presentes (`dense/sparse_results_count`, `combined_top_k`, `input/output_count`, `latency_ms`, `fallback_used`, `original/rewritten_query`, `history_turns_used`).
 
 ## Decisiones tomadas en esta sesión (Bloque R)
@@ -64,11 +64,12 @@ Al reanudar: gate humano. Si pasa, abrir/mergear la PR de `feat/retrieval-modula
 - **RankGPT por chunk_hash**: el prompt usa `chunk_hash` como id; el parser descarta ids no presentes y reañade candidatos omitidos preservando el orden híbrido.
 - **recall@5 sobre 30 (no 35)**: los 5 `no_se` tienen `gold_chunks` vacío (no medibles para recall); se reportan aparte. Interpretación documentada en el script.
 - Embeddings de query con `task_type="RETRIEVAL_QUERY"` (corpus indexado con `RETRIEVAL_DOCUMENT`); reutiliza `GeminiEmbeddingsAdapter`.
+- **Timeout del reranker (fix de review):** `config={"timeout":…}` en `.invoke()` se ignoraba (`RunnableConfig` no tiene esa clave) → el timeout de spec 03 no se aplicaba (span medía 23 s sin fallback). Ahora el timeout vive en el cliente: `GeminiChatAdapter(timeout=…)` y clientes dedicados para rewrite (`rewrite_timeout_s`) y rerank (`rerank_timeout_s`); al excederse, el SDK lanza y la cadena de fallback devuelve el orden híbrido. Tests añadidos (propagación + fallback por timeout). Log de query bajado a DEBUG (PII, CLAUDE.md). Menores restantes en issue de follow-up.
 
 ## Verificación pre-cierre (sesión 4)
 
 - `cd backend && uv run ruff check .` → `All checks passed!` ✓
-- `cd backend && uv run pytest tests/ -q` → 87 passed ✓
+- `cd backend && uv run pytest tests/ -q` → 89 passed ✓
 - `npx commitlint --from $(git merge-base HEAD main) --to HEAD` → exit 0 (rango vacío: aún sin commits de sesión; el commit de cierre será convencional) ✓
 
 ## Blockers (Bloque R)
@@ -78,7 +79,7 @@ Al reanudar: gate humano. Si pasa, abrir/mergear la PR de `feat/retrieval-modula
 ## Gate de revisión (Bloque R)
 
 - **Criterio (acceptance specs 02/03/04):** las 3 funciones (`retrieve_hybrid`, `rerank`, `rewrite_query`) testeadas con Gemini mockeado; cada fase emite span en Phoenix (rewrite, hybrid_search, rerank, retrieve) + span LLM; `/retrieve` devuelve top-5 con scores; recall@5 baseline > 0.7.
-- **Resultado:** **pendiente** (gate humano). Evidencia: 87 tests verdes + ruff limpio; traza con span por fase confirmada en el dashboard de Phoenix; `/retrieve` verificado vía TestClient (top-5 con `rrf_score`/ranks/`rerank_position`); recall@5 = 0.750 (híbrido) y 0.867 (con reranker), ambos > 0.7.
+- **Resultado:** **pendiente** (gate humano). Evidencia: 89 tests verdes + ruff limpio; traza con span por fase confirmada en el dashboard de Phoenix; `/retrieve` verificado vía TestClient (top-5 con `rrf_score`/ranks/`rerank_position`); recall@5 = 0.750 (híbrido) y 0.867 (con reranker), ambos > 0.7.
 
 ## Completado en esta sesión (Bloque G)
 

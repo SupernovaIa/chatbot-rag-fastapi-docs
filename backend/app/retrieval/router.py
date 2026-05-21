@@ -76,10 +76,20 @@ def get_embeddings(settings: Settings = Depends(get_settings)) -> QueryEmbedding
     return QueryEmbeddingsAdapter(api_key=settings.google_api_key)
 
 
-def get_llm(settings: Settings = Depends(get_settings)) -> GeminiChatAdapter:
+def get_rewrite_llm(settings: Settings = Depends(get_settings)) -> GeminiChatAdapter:
     return GeminiChatAdapter(
         api_key=settings.google_api_key,
         model=settings.gemini_flash_model,
+        timeout=settings.rewrite_timeout_s,
+    )
+
+
+def get_rerank_llm(settings: Settings = Depends(get_settings)) -> GeminiChatAdapter:
+    # Dedicated client with the rerank timeout (spec 03: > 5 s → hybrid order).
+    return GeminiChatAdapter(
+        api_key=settings.google_api_key,
+        model=settings.gemini_flash_model,
+        timeout=settings.rerank_timeout_s,
     )
 
 
@@ -92,7 +102,8 @@ def retrieve_endpoint(
     settings: Settings = Depends(get_settings),
     searcher: PgVectorHybridSearcher = Depends(get_searcher),
     embeddings: QueryEmbeddingsAdapter = Depends(get_embeddings),
-    llm: GeminiChatAdapter = Depends(get_llm),
+    rewrite_llm: GeminiChatAdapter = Depends(get_rewrite_llm),
+    rerank_llm: GeminiChatAdapter = Depends(get_rerank_llm),
 ) -> RetrieveResponse:
     """Run rewrite → hybrid search → rerank and return the top-K with scores."""
     history = [Turn(question=t.question, answer=t.answer) for t in request.history]
@@ -100,12 +111,11 @@ def retrieve_endpoint(
         query=request.query,
         embeddings=embeddings,
         searcher=searcher,
-        llm=llm,
+        rewrite_llm=rewrite_llm,
+        rerank_llm=rerank_llm,
         history=history,
         candidates=settings.retrieval_candidates,
         top_k=request.top_k or settings.retrieval_top_k,
-        rerank_timeout_s=settings.rerank_timeout_s,
-        rewrite_timeout_s=settings.rewrite_timeout_s,
     )
     return RetrieveResponse(
         original_query=result.original_query,

@@ -24,17 +24,21 @@ def retrieve(
     query: str,
     embeddings: QueryEmbeddingsPort,
     searcher: HybridSearchPort,
-    llm: ChatLLMPort,
+    rewrite_llm: ChatLLMPort,
+    rerank_llm: ChatLLMPort,
     history: list[Turn] | None = None,
     candidates: int = 20,
     top_k: int = 5,
-    rerank_timeout_s: float = 5.0,
-    rewrite_timeout_s: float = 1.5,
 ) -> RetrievalResult:
-    """Run the full retrieval pipeline and return the reranked top-K."""
+    """Run the full retrieval pipeline and return the reranked top-K.
+
+    *rewrite_llm* and *rerank_llm* are separate clients so each carries its own
+    request timeout (spec 03/04); the reranker's timeout degrades to the hybrid
+    order on a slow Flash call instead of hanging.
+    """
     history = history or []
 
-    rewritten = rewrite_query(query, history, llm, timeout_s=rewrite_timeout_s)
+    rewritten = rewrite_query(query, history, rewrite_llm)
     query_vector = embeddings.embed_query(rewritten)
     hybrid_candidates = searcher.search(
         query_vector=query_vector,
@@ -45,9 +49,8 @@ def retrieve(
     top, fallback_used = rerank_with_stats(
         rewritten,
         hybrid_candidates,
-        llm,
+        rerank_llm,
         top_k=top_k,
-        timeout_s=rerank_timeout_s,
     )
 
     set_span_attributes(

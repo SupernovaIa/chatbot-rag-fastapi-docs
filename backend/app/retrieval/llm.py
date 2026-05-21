@@ -54,9 +54,21 @@ class QueryEmbeddingsAdapter:
 
 
 class GeminiChatAdapter:
-    """Chat completion via LangChain ChatGoogleGenerativeAI (Gemini Flash)."""
+    """Chat completion via LangChain ChatGoogleGenerativeAI (Gemini Flash).
 
-    def __init__(self, api_key: str, model: str, temperature: float = 0.0) -> None:
+    The request *timeout* is set on the underlying client. When exceeded, the
+    SDK raises, which the reranker/rewriter fallback paths catch (so a slow
+    Flash call degrades to the hybrid order instead of hanging). The reranker
+    and rewriter use separate adapters with their own timeouts.
+    """
+
+    def __init__(
+        self,
+        api_key: str,
+        model: str,
+        temperature: float = 0.0,
+        timeout: float | None = None,
+    ) -> None:
         from langchain_google_genai import ChatGoogleGenerativeAI
 
         self._model_id = model
@@ -64,11 +76,11 @@ class GeminiChatAdapter:
             model=model,
             google_api_key=api_key,
             temperature=temperature,
+            timeout=timeout,
         )
 
-    def complete(self, prompt: str, timeout_s: float | None = None) -> str:
-        config = {"timeout": timeout_s} if timeout_s else {}
-        response = self._llm.invoke(prompt, config=config)
+    def complete(self, prompt: str) -> str:
+        response = self._llm.invoke(prompt)
         return _extract_text(response.content)
 
 

@@ -33,11 +33,11 @@ def rewrite_query(
     query: str,
     history: list[Turn],
     llm: ChatLLMPort,
-    timeout_s: float = 1.5,
 ) -> str:
     """Return a standalone version of *query* given *history*.
 
-    Returns *query* unchanged when there is no history or on any LLM failure.
+    Returns *query* unchanged when there is no history or on any LLM failure
+    (including timeout — the request timeout lives on *llm*).
     """
     window = history[-_WINDOW:] if history else []
 
@@ -57,7 +57,7 @@ def rewrite_query(
 
     rewritten = query
     try:
-        candidate = llm.complete(prompt, timeout_s=timeout_s).strip()
+        candidate = llm.complete(prompt).strip()
         if candidate and len(candidate) <= _MAX_REWRITE_LEN:
             rewritten = candidate
         else:
@@ -70,5 +70,7 @@ def rewrite_query(
         rewritten_query=rewritten,
         history_turns_used=len(window),
     )
-    logger.info("rewrite: %r -> %r (turns=%d)", query, rewritten, len(window))
+    # DEBUG, not INFO: query text may contain PII (CLAUDE.md). Spans still carry
+    # original/rewritten_query as required by spec 04 (Phoenix is local-only).
+    logger.debug("rewrite: %r -> %r (turns=%d)", query, rewritten, len(window))
     return rewritten

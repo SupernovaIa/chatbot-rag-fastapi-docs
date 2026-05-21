@@ -24,11 +24,12 @@ Próximas entradas por bloque.
 - `POST /retrieve`: endpoint que devuelve el top-5 reranqueado con scores (`rrf_score`, dense/sparse rank, `rerank_position`); no llama al generador.
 - `prompts/reranker.md`, `prompts/rewriter.md`: prompts versionados (metadata + placeholders `{{var}}`).
 - `scripts/manual_retrieval_check.py`: calcula recall@5 / MRR / hit-rate sobre el gold (híbrido o pipeline completo).
-- Tests: `backend/tests/retrieval/` (24 tests con Gemini y DB mockeados) + `backend/tests/conftest.py` (desactiva tracing en tests).
+- Tests: `backend/tests/retrieval/` (26 tests con Gemini y DB mockeados) + `backend/tests/conftest.py` (desactiva tracing en tests).
 - Dependencias: `arize-phoenix-otel`, `openinference-instrumentation-langchain`, `opentelemetry-exporter-otlp`.
 
 ### Cambiado
 - `backend/app/main.py`: inicializa tracing al arranque e incluye el router de retrieval.
+- **Timeout del reranker/rewriter (fix de review):** se aplica en el cliente (`GeminiChatAdapter(timeout=…)`), no como `config` de `.invoke()` (que `RunnableConfig` ignora). Clientes dedicados para rewrite y rerank con sus timeouts (spec 03: > 5 s → orden híbrido vía fallback). Log de query original/reescrita bajado a DEBUG (PII, CLAUDE.md).
 - `backend/app/config.py`: añadidos `gemini_flash_model` (anclado `gemini-3.5-flash`), `corpus_sha` y parámetros de retrieval (candidatos 20, top_k 5, rrf_k 60, timeouts de rerank/rewrite).
 
 ### Decisiones documentadas

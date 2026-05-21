@@ -7,7 +7,12 @@ import json
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.retrieval.router import get_embeddings, get_llm, get_searcher
+from app.retrieval.router import (
+    get_embeddings,
+    get_rerank_llm,
+    get_rewrite_llm,
+    get_searcher,
+)
 from tests.retrieval.conftest import (
     FakeEmbeddings,
     FakeLLM,
@@ -19,7 +24,8 @@ from tests.retrieval.conftest import (
 def _client(candidates, llm_response):
     app.dependency_overrides[get_searcher] = lambda: FakeSearcher(candidates)
     app.dependency_overrides[get_embeddings] = lambda: FakeEmbeddings()
-    app.dependency_overrides[get_llm] = lambda: FakeLLM(response=llm_response)
+    app.dependency_overrides[get_rewrite_llm] = lambda: FakeLLM(response="unused")
+    app.dependency_overrides[get_rerank_llm] = lambda: FakeLLM(response=llm_response)
     return TestClient(app)
 
 

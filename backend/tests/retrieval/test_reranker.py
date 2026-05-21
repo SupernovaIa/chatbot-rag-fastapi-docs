@@ -4,13 +4,20 @@ from __future__ import annotations
 
 import json
 
-from app.retrieval.llm import _extract_text
+from app.retrieval.llm import GeminiChatAdapter, _extract_text
 from app.retrieval.reranker import rerank, rerank_with_stats
 from tests.retrieval.conftest import FakeLLM, make_candidate
 
 
 def test_extract_text_plain_string() -> None:
     assert _extract_text("hello") == "hello"
+
+
+def test_chat_adapter_propagates_timeout_to_client() -> None:
+    # The request timeout must live on the underlying client, not be ignored
+    # as a per-call config (which is what silently broke spec 03's 5s rule).
+    adapter = GeminiChatAdapter(api_key="x", model="gemini-3.5-flash", timeout=5.0)
+    assert adapter._llm.timeout == 5.0
 
 
 def test_extract_text_thinking_blocks() -> None:

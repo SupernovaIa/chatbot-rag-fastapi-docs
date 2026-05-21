@@ -15,7 +15,7 @@ class FakeLLM:
         self.raises = raises
         self.calls: list[str] = []
 
-    def complete(self, prompt: str, timeout_s: float | None = None) -> str:
+    def complete(self, prompt: str) -> str:
         self.calls.append(prompt)
         if self.raises is not None:
             raise self.raises

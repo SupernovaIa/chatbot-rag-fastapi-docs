@@ -66,14 +66,14 @@ def rerank(
     candidates: list[Candidate],
     llm: ChatLLMPort,
     top_k: int = 5,
-    timeout_s: float = 5.0,
 ) -> list[Candidate]:
     """Reorder *candidates* by relevance and return the top *top_k*.
 
     On any failure (bad JSON, timeout, LLM error) the original order is kept
-    and a warning is logged; ``fallback_used`` is recorded on the span.
+    and a warning is logged; ``fallback_used`` is recorded on the span. The
+    request timeout (spec 03: > 5 s → original order) lives on *llm*.
     """
-    top, _ = rerank_with_stats(query, candidates, llm, top_k, timeout_s)
+    top, _ = rerank_with_stats(query, candidates, llm, top_k)
     return top
 
 
@@ -83,7 +83,6 @@ def rerank_with_stats(
     candidates: list[Candidate],
     llm: ChatLLMPort,
     top_k: int = 5,
-    timeout_s: float = 5.0,
 ) -> tuple[list[Candidate], bool]:
     """Like :func:`rerank` but also returns whether the fallback was used."""
     if not candidates:
@@ -101,7 +100,7 @@ def rerank_with_stats(
     )
 
     try:
-        raw = llm.complete(prompt, timeout_s=timeout_s)
+        raw = llm.complete(prompt)
         ordered_ids = _parse_ranking(raw, set(by_id))
         if ordered_ids is None:
             logger.warning("rerank: unparseable LLM output, falling back to hybrid order")
