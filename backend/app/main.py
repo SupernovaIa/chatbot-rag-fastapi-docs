@@ -1,16 +1,24 @@
 """FastAPI application entrypoint.
 
-Baseline app for Bloque A: exposes a liveness endpoint. Feature routers
-(auth, chat, indexing, retrieval, evals, security) are wired in later blocks.
+Exposes a liveness endpoint and the retrieval router. Tracing is initialised at
+startup (OpenTelemetry → Phoenix, OpenInference for LangChain; ADR-008).
+Feature routers (auth, chat, evals, security) are wired in later blocks.
 """
 
 from fastapi import FastAPI
 
 from app.config import get_settings
+from app.observability.tracing import setup_tracing
+from app.retrieval.router import router as retrieval_router
 
 settings = get_settings()
 
+# Best-effort: no-ops if Phoenix or the tracing libs are unavailable.
+setup_tracing(endpoint=settings.phoenix_collector_endpoint)
+
 app = FastAPI(title=settings.app_name, version="0.1.0")
+
+app.include_router(retrieval_router)
 
 
 @app.get("/health", tags=["ops"])

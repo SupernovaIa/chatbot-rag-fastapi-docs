@@ -4,24 +4,82 @@
 
 ## Bloque actual
 
-**Bloque:** G (Dataset gold)
-**Estado:** completado ✓ (tag: 03-block-G · PR #5 mergeado a main · gate humano superado)
-**Fecha apertura:** 2026-05-21 (sesión 3)
-**Última actualización:** 2026-05-21 (cierre de sesión 3)
+**Bloque:** R (Retrieval modular)
+**Estado:** gate_pending
+**Fecha apertura:** 2026-05-21 (sesión 4)
+**Última actualización:** 2026-05-21 (cierre de sesión 4)
 
-> Bloque B quedó completado ✓ (tag `02-block-B`). El histórico de B se conserva más abajo en este fichero.
+> Bloque G quedó completado ✓ (tag `03-block-G` · PR #5 mergeado a main). Bloque B completado ✓ (tag `02-block-B`). El histórico se conserva más abajo.
 
 ## Objetivo del bloque
 
-Dataset gold de 40 ejemplos en español sobre el corpus FastAPI docs (spec `08-dataset-gold.md`): directorio + schema en `corpus/sample/fastapi-docs/evals/`, 40 ejemplos con `gold_chunks` fundamentados en el corpus indexado, `scripts/validate_gold.py` + test, y revisión humana obligatoria (firma de Javi).
+Retrieval modular (specs 02/03/04, ADRs 004/005/008): tracing OpenTelemetry→Phoenix con OpenInference para LangChain y helper `@traced`; módulo `backend/app/retrieval/` con búsqueda híbrida (denso+BM25+RRF en SQL), LLM-reranker RankGPT con fallback robusto y query rewriting multi-turn; prompts versionados; tests con Gemini mockeado; endpoint `/retrieve`; baseline recall@5/MRR sobre el gold.
+
+## Baseline de retrieval (sesión 4, corpus_sha 40e33e4)
+
+Medido con `scripts/manual_retrieval_check.py` sobre los **30 single-turn con `gold_chunks`** (de los 35 single-turn; los 5 `no_se` g-31…g-35 no tienen gold y se excluyen del recall por diseño). Match por `(source, section)`.
+
+| Métrica | Híbrido solo | Pipeline + reranker |
+|---|---|---|
+| recall@5 | 0.750 | **0.867** |
+| hit-rate@5 | 0.833 (25/30) | **0.900 (27/30)** |
+| MRR@5 | 0.629 | **0.801** |
+
+Gate del bloque (recall@5 > 0.7) **superado** en ambas configuraciones. El reranker RankGPT aporta +0.117 recall y +0.172 MRR sobre el híbrido.
 
 ## Próxima acción concreta
 
-Cerrar el bloque: PR de `feat/dataset-gold` + skill `review`. Gate listo (criterios de la spec 08 cumplidos).
+Al reanudar: gate humano. Si pasa, abrir/mergear la PR de `feat/retrieval-modular` a `main` (squash) y crear el tag `04-block-R`; si no, documentar el fallo y seguir en el bloque. El agente abre la PR y PARA (merge + tag son acción humana).
 
 ## Pendientes en este bloque
 
-- Ninguno funcional. Solo cierre administrativo (PR + review).
+- Tests de integración con pgvector real en CI (ahora solo unitarios con Gemini/DB mockeados).
+- Multi-turn: el rewriter se testea con historial sintético; la persistencia real del historial llega en bloque CH (spec 06).
+- Afinado de RRF k=60 y pesos denso/sparse: a medir en iteración futura.
+- **BM25 cross-lingual: query español vs corpus inglés (hallazgo de la verificación de tracing):** en una verificación `sparse_results_count=0`. Causa real: las queries del gold están en español y el corpus FastAPI está en inglés. **No es un problema de config del `tsvector`**: los docs en inglés deben seguir indexados con config `english` (ponerlos en `spanish` sería peor: stemming equivocado para texto inglés). BM25 aporta poco porque query y documento **no comparten léxico** salvo identificadores de código/API (`FastAPI`, `int`, `response_model`); el puente entre idiomas lo hace el **embedding denso multilingüe**, y por eso el recall se sostiene (0.867) con denso+reranker. No requiere reindexar. Decisión de diseño de retrieval a evaluar en el bloque de iteración:
+  - (a) Normalizar/traducir la query a inglés **solo** para la pierna sparse (mantener la original para el denso).
+  - (b) Limitar BM25 a match de símbolos de código/API (extraer identificadores de la query).
+  - (c) Asumir denso+reranker como camino principal y documentar BM25 como aporte marginal para tokens compartidos.
+  Probablemente requiere un **ADR corto** (estrategia léxica en retrieval cross-lingual). Pendiente para más adelante. No bloquea el gate.
+
+## Completado en esta sesión (Bloque R)
+
+- [x] `backend/app/observability/tracing.py` — setup OTel→Phoenix (OpenInference LangChain) + helper `@traced` + `set_span_attributes`; defensivo (no-op si Phoenix/libs no disponibles, gateado por `DISABLE_TRACING`).
+- [x] `backend/app/retrieval/hybrid.py` — `PgVectorHybridSearcher`: denso (coseno `<=>`) + BM25 (`ts_rank_cd`) + RRF en una sola query SQL con CTEs y FULL OUTER JOIN. Span `hybrid_search` con `dense_results_count`/`sparse_results_count`/`combined_top_k`.
+- [x] `backend/app/retrieval/reranker.py` — RankGPT listwise con parser tolerante (descarta ids inventados, reañade omitidos) y fallback robusto (JSON inválido/timeout/error → orden híbrido). Span `rerank` con `input_count`/`output_count`/`latency_ms`/`fallback_used`.
+- [x] `backend/app/retrieval/rewriter.py` — query rewriting multi-turn, sliding window N=5 (ADR-005); devuelve query original si no hay historial o el LLM falla. Span `rewrite`.
+- [x] `backend/app/retrieval/orchestrator.py` — `retrieve()`: rewrite → embed → hybrid → rerank; span `retrieve` envolvente.
+- [x] `backend/app/retrieval/llm.py` — `GeminiChatAdapter` (Gemini Flash vía LangChain `ChatGoogleGenerativeAI`, auto-instrumentado por OpenInference) + `QueryEmbeddingsAdapter` (RETRIEVAL_QUERY). `_extract_text` aplana el `content` en bloques de los modelos *thinking* Gemini 3.x.
+- [x] `backend/app/retrieval/router.py` — `POST /retrieve` (top-5 con scores), wiring con `Depends`.
+- [x] `prompts/reranker.md`, `prompts/rewriter.md` — versionados (metadata + placeholders `{{var}}`), cargados por `app/retrieval/prompts.py`.
+- [x] `backend/app/config.py` — `gemini_flash_model` (anclado `gemini-3.5-flash` 2026-05-21), `corpus_sha`, params de retrieval (candidatos 20, top_k 5, rrf_k 60, timeouts).
+- [x] `scripts/manual_retrieval_check.py` — recall@5/MRR/hit-rate sobre el gold (híbrido o pipeline completo).
+- [x] Tests: 89 verdes (26 de retrieval: hybrid/reranker/rewriter/orchestrator/router + `_extract_text` + propagación/fallback de timeout), Gemini y DB mockeados. Ruff limpio.
+- [x] **Tracing verificado en Phoenix (dashboard):** query real por el orquestador con tracing activo contra `localhost:6006`; traza única con jerarquía `retrieve` (root) → `rewrite` / `hybrid_search` / `rerank` → `ChatGoogleGenerativeAI` (kind=LLM, auto-instrumentado por OpenInference). Atributos por fase presentes (`dense/sparse_results_count`, `combined_top_k`, `input/output_count`, `latency_ms`, `fallback_used`, `original/rewritten_query`, `history_turns_used`).
+
+## Decisiones tomadas en esta sesión (Bloque R)
+
+- **Model ID Flash anclado `gemini-3.5-flash`** (verificado vía `models.list()` de Google AI Studio el 2026-05-21; coincide con default de ADR-001).
+- **Bug Gemini 3.x thinking**: `ChatGoogleGenerativeAI` devuelve `content` como lista de bloques (`[{"type":"text","text":...}]`); la primera corrida del reranker caía en fallback por extraer cadena vacía. Corregido con `_extract_text` + test. Sin el fix, rerank ≡ híbrido (0.750).
+- **RankGPT por chunk_hash**: el prompt usa `chunk_hash` como id; el parser descarta ids no presentes y reañade candidatos omitidos preservando el orden híbrido.
+- **recall@5 sobre 30 (no 35)**: los 5 `no_se` tienen `gold_chunks` vacío (no medibles para recall); se reportan aparte. Interpretación documentada en el script.
+- Embeddings de query con `task_type="RETRIEVAL_QUERY"` (corpus indexado con `RETRIEVAL_DOCUMENT`); reutiliza `GeminiEmbeddingsAdapter`.
+- **Timeout del reranker (fix de review):** `config={"timeout":…}` en `.invoke()` se ignoraba (`RunnableConfig` no tiene esa clave) → el timeout de spec 03 no se aplicaba (span medía 23 s sin fallback). Ahora el timeout vive en el cliente: `GeminiChatAdapter(timeout=…)` y clientes dedicados para rewrite (`rewrite_timeout_s`) y rerank (`rerank_timeout_s`); al excederse, el SDK lanza y la cadena de fallback devuelve el orden híbrido. Tests añadidos (propagación + fallback por timeout). Log de query bajado a DEBUG (PII, CLAUDE.md). Menores restantes en issue de follow-up.
+
+## Verificación pre-cierre (sesión 4)
+
+- `cd backend && uv run ruff check .` → `All checks passed!` ✓
+- `cd backend && uv run pytest tests/ -q` → 89 passed ✓
+- `npx commitlint --from $(git merge-base HEAD main) --to HEAD` → exit 0 (rango vacío: aún sin commits de sesión; el commit de cierre será convencional) ✓
+
+## Blockers (Bloque R)
+
+- Ninguno.
+
+## Gate de revisión (Bloque R)
+
+- **Criterio (acceptance specs 02/03/04):** las 3 funciones (`retrieve_hybrid`, `rerank`, `rewrite_query`) testeadas con Gemini mockeado; cada fase emite span en Phoenix (rewrite, hybrid_search, rerank, retrieve) + span LLM; `/retrieve` devuelve top-5 con scores; recall@5 baseline > 0.7.
+- **Resultado:** **pendiente** (gate humano). Evidencia: 89 tests verdes + ruff limpio; traza con span por fase confirmada en el dashboard de Phoenix; `/retrieve` verificado vía TestClient (top-5 con `rrf_score`/ranks/`rerank_position`); recall@5 = 0.750 (híbrido) y 0.867 (con reranker), ambos > 0.7.
 
 ## Completado en esta sesión (Bloque G)
 
