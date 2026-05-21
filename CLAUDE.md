@@ -70,6 +70,12 @@ Restricción transversal: **cero tarjeta**. Todo el stack se ejecuta en local co
 - Ramas: `feat/<slug>`, `fix/<slug>`, `chore/<slug>`, `docs/<slug>`. Una rama por bloque.
 - PRs descritos en español, mensaje de commit en inglés.
 
+### Flujo de gate y merge
+
+- **El agente abre el PR y PARA.** No mergea ni crea tags: el merge y el tag `NN-block-<X>` son **acción humana** (es el gate de revisión). `main` está protegida.
+- **Merges a `main` siempre en squash:** una entrada por bloque, coherente con un tag por bloque.
+- **El flip de un bloque a `completado` en `SESSION.md` NO se hace con una PR aparte.** La siguiente sesión, como **primer commit de su rama**, marca el bloque anterior como `completado` y el nuevo como `in_progress`; ese cambio viaja en la PR del nuevo bloque. El **tag** `NN-block-<X>` es el registro duro de que el bloque quedó hecho.
+
 ### Dependencias
 
 - **Backend Python con `uv`.** `pyproject.toml` para declarar deps, `uv.lock` committeado para builds reproducibles. Dockerfile con `uv sync --frozen`.
