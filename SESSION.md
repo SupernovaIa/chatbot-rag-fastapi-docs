@@ -4,30 +4,48 @@
 
 ## Bloque actual
 
-**Bloque:** CH (Backend de chat)
-**Estado:** gate_pending
-**Fecha apertura:** 2026-05-21 (sesión 5)
-**Última actualización:** 2026-05-21 (cierre de sesión 5)
+**Bloque:** AU (Autenticación)
+**Estado:** in_progress
+**Fecha apertura:** 2026-05-22 (sesión 7)
+**Última actualización:** 2026-05-22 (apertura de sesión 7)
 
-> Bloque R completado ✓ (tag `04-block-R` pendiente de merge humano). Bloque G completado ✓ (tag `03-block-G` · PR #5). Bloque B completado ✓ (tag `02-block-B`). El histórico se conserva más abajo.
+> Bloque CH completado ✓ (tag `05-block-CH` pendiente de merge humano). Bloque R completado ✓ (tag `04-block-R` pendiente de merge humano). Bloque G completado ✓ (tag `03-block-G` · PR #5). Bloque B completado ✓ (tag `02-block-B`). El histórico se conserva más abajo.
 
 ## Objetivo del bloque
 
-Backend de chat (specs 05/06/07): migración Alembic `chat_sessions` + `chat_messages`; `prompts/system.md` con prefijo estable para caching implícito; endpoint `POST /chat` con `EventSourceResponse` (pipeline rewrite→retrieve→rerank→generate, persistencia, cancelación al desconectar); endpoints `GET /chat/sessions[/{id}]`; spans por fase en Phoenix con `cached_token_count`; tests mockeados de toda la capa.
+Autenticación básica (ADR-006): FastAPI Users con email + password + bcrypt + JWT en cookie httpOnly. Migración Alembic con tabla `users` y FK en `chat_sessions.user_id`; rutas `/auth/register|login|logout|me`; protección de `/chat` y `/chat/sessions*` con `current_user` + scoping por usuario; frontend con Login/Register, `useAuth`, routing público/protegido y CORS con `credentials: true`.
 
 ## Próxima acción concreta
 
-Al reanudar: gate humano. Si pasa, mergear la PR de `feat/chat-endpoint` a `main` (squash) y crear el tag `05-block-CH`; si no, documentar el fallo y seguir en el bloque.
+Implementar: migración 0003, módulo `backend/app/auth/`, actualizar `chat/router.py` y `chat/store.py`, frontend, tests.
 
 ## Pendientes en este bloque
 
-- Auth: `POST /chat` y los endpoints GET no tienen JWT (marcado como `TODO: add auth in block AU`). Se activa en el bloque de autenticación.
-- OTel span para la fase de generación: `set_span_attributes` dentro de `event_generator()` es no-op (el route handler ya retornó, no hay span activo). Solución: `tracer.start_span()` manual pasado al generador. Marcado con `TODO(block-F)` en el router.
-- Frontend: los endpoints chat son consumibles desde el frontend (bloque FE).
+- Migración `0003_create_users_add_fk.py` (tabla `users` + FK `chat_sessions.user_id → users.id`).
+- `backend/app/auth/` (models, db, schema, manager, router).
+- `backend/app/chat/store.py` — añadir `user_id` a `get_or_create_session` y `list_sessions`.
+- `backend/app/chat/router.py` — proteger los tres endpoints con `current_active_user`.
+- `backend/app/main.py` — añadir CORS + auth router.
+- Frontend: Login, Register, useAuth, ProtectedRoute, routing.
+- Tests: guard 401, scoping 403, register/login/logout/me.
 
-## Completado en esta sesión (Bloque CH)
+## Completado en este bloque
 
-- [x] **Bloque R marcado como iniciado** — primer commit de esta rama (convención CLAUDE.md).
+- [x] Primer commit de rama: CH marcado como completado, AU como in_progress; nota de caching corregida en CHANGELOG.md y SESSION.md.
+
+## Decisiones tomadas en este bloque
+
+_Por completar._
+
+## Gate de revisión (Bloque AU)
+
+- **Criterio:** register/login/logout funcionan por UI; `/chat` da 401 sin cookie; un usuario no ve sesiones de otro (403); tests pasan.
+- **Resultado:** pendiente.
+
+---
+
+## Completado en sesiones anteriores (Bloque CH)
+
 - [x] `backend/migrations/versions/0002_create_chat_tables.py` — tablas `chat_sessions` (id UUID PK, user_id nullable, timestamps) y `chat_messages` (turn_idx, role user/assistant, content, citations JSONB). Constraint UNIQUE `(session_id, turn_idx, role)`; la spec decía `(session_id, turn_idx)` — corrección documentada en el comentario de la migración (con ese constraint no sería posible insertar user y assistant del mismo turno).
 - [x] `prompts/system.md` — system prompt versionado con front-matter YAML; ~1 200 tokens estimados (>mínimo Flash ~1 024 para caching implícito); instrucciones de rol, formato, citación con ejemplos, multi-turn, tono.
 - [x] `backend/app/chat/models.py` — dataclasses `ChatSession`, `ChatMessage`, `ChatTurn`, `Citation`, `UsageMeta` (con `from_response_metadata`), `StreamEvent`.
@@ -39,8 +57,9 @@ Al reanudar: gate humano. Si pasa, mergear la PR de `feat/chat-endpoint` a `main
 - [x] `backend/app/main.py` — incluye `chat_router` bajo el prefijo `/chat`.
 - [x] `backend/pyproject.toml` + `uv.lock` — dep `sse-starlette>=2.1` (instalada 3.4.4).
 - [x] Tests: 46 nuevos tests (store × 8, prompts × 11, generator × 9, router × 12 + 3 GET), **135 total, todos verdes**. Ruff limpio.
+- [x] **Issue #12 abierto** — investigación de por qué implicit caching no se activa con prefijo por encima del mínimo (1 107–1 302 tokens > 1 024 documentados para Gemini Flash). Hipótesis: model ID `gemini-3.5-flash` puede no coincidir exactamente con los modelos listados en la doc ("Gemini 3 Flash Preview"/"Gemini 2.5 Flash"), o el free tier no incluye implicit caching.
 
-## Decisiones tomadas en esta sesión (Bloque CH)
+## Decisiones tomadas en sesiones anteriores (Bloque CH)
 
 - **UNIQUE (session_id, turn_idx, role)** en vez de `(session_id, turn_idx)`: la spec mencionaba la segunda, pero user y assistant comparten `turn_idx` → constraint incorrecto. Documentado en la migración.
 - **No `CachedContent` explícito**: umbral 32 768 tokens, muy por encima del system prompt. Caching implícito (automático, sin gestión de `cache_id`/TTL).
@@ -48,29 +67,24 @@ Al reanudar: gate humano. Si pasa, mergear la PR de `feat/chat-endpoint` a `main
 - **`asyncio.to_thread` para retrieval/DB**: las funciones de retrieval y store son síncronas (usan SQLAlchemy síncrono). Se ejecutan en el thread pool del event loop desde el router async.
 - **`ChatGoogleGenerativeAI` a nivel de módulo** en `generator.py`: necesario para que `patch("app.chat.generator.ChatGoogleGenerativeAI")` funcione en tests (un import dentro de la función no es parcheable por nombre de módulo).
 - **Disconnect watcher**: `asyncio.create_task(_watch_disconnect())` que sondea `request.is_disconnected()` cada 250 ms y setea un `asyncio.Event`; el generator lo comprueba entre chunks y sale limpio sin persistir el turno incompleto (conserva free tier).
-- **Hallazgo caching implícito**: `gemini-3.5-flash` (3.5-flash-05-2026) devuelve `cached_content_token_count=None` con prefijos de 1107–1302 tokens reales (verificado con SDK directo, 4+ llamadas). Dos causas independientes: (1) LangChain `astream()` no expone `usage_metadata` en `response_metadata` de streaming chunks; (2) el modelo no activa caching implícito a este tamaño de prefijo. El caching explícito (`CachedContent`) requeriría 32 768 tokens mínimos. La estructura de la implementación es correcta (prefijo estable primero), el criterio `cached_token_count > 0` no se satisface y se documenta como hallazgo.
+- **Hallazgo caching implícito (precisado en sesión 6)**: `gemini-3.5-flash` (3.5-flash-05-2026) devuelve `cached_content_token_count=None` en todos los turnos (turno 1 y turno 2). El valor es `None`, no `0`. Mínimo documentado para implicit caching en Gemini Flash: **1 024 tokens** (fuente: ai.google.dev/gemini-api/docs/caching, verificado con Context7). Nuestro prefijo (1 107–1 302 tokens medidos con SDK directo, 4 llamadas) está **por encima** del mínimo. Es el caso "prefijo > mínimo y aun así None" → issue #12. Causa LangChain también confirmada: `astream()` no expone `usage_metadata` en `response_metadata` de chunks de streaming. La estructura de la implementación es correcta; el criterio `cached_token_count > 0` no se satisface y queda como investigación abierta.
 - **Bug OTel span generador**: `set_span_attributes` dentro de `event_generator()` es no-op; el route handler ya retornó cuando el generador SSE completa. Eliminado, sustituido por `logger.debug`. Fix diferido a bloque F con `tracer.start_span()` manual (TODO en router).
 - **Prompts en Docker**: los `.md` de `prompts/` están en la raíz del repo, fuera del build context `./backend`. Resuelto añadiendo bind mount `./prompts:/prompts:ro` en `docker-compose.yml`.
 
-## Verificación pre-cierre (sesión 5)
+## Verificación pre-cierre (sesión 5/6, Bloque CH)
 
 - `cd backend && uv run ruff check .` → `All checks passed!` ✓
 - `cd backend && uv run pytest tests/ -q` → 135 passed ✓
-- `npx commitlint --from $(git merge-base HEAD main) --to HEAD` → exit 0 (rama aún sin commits; el commit de cierre será convencional) ✓
-- **Verificación live** (stack Docker real, `gemini-3.5-flash`): turno 1 y turno 2 con mismo `session_id` → stream de tokens + evento `citations` en ambos; historial persistido y recuperado confirmado vía `GET /chat/sessions/{id}`; 19 spans en Phoenix (rewrite + hybrid_search + rerank + 2× ChatGoogleGenerativeAI LLM); `cached_content_token_count=None` — hallazgo documentado.
-
-## Blockers (Bloque CH)
-
-- Ninguno.
+- **Verificación live** (stack Docker real, `gemini-3.5-flash`): turno 1 y turno 2 con mismo `session_id` → stream de tokens + evento `citations` en ambos; historial persistido y recuperado confirmado vía `GET /chat/sessions/{id}`; 19 spans en Phoenix; `cached_content_token_count=None` — hallazgo documentado.
 
 ## Gate de revisión (Bloque CH)
 
 - **Criterio (acceptance specs 05/06/07):** stream da tokens + evento `citations`; 2º turno con `session_id` carga historial (N=5); traza Phoenix tiene las 4 fases; `cached_token_count > 0` desde el 2º turno si el prefijo supera el mínimo.
-- **Resultado:** **pendiente** (gate humano). Evidencia verificada live:
-  - ✓ Stream da tokens + evento `citations` (verificado con `curl -N` contra stack Docker real).
-  - ✓ 2º turno con `session_id` carga historial (`GET /chat/sessions/{id}` confirma persistencia).
-  - ✓ Traza Phoenix: spans rewrite + hybrid_search + rerank + ChatGoogleGenerativeAI presentes (19 spans para 2 turnos, incluye fases de retrieval + LLM).
-  - ✗ `cached_token_count = None` — **hallazgo:** `gemini-3.5-flash` (3.5-flash-05-2026) devuelve `cached_content_token_count=None` incluso con prefijo de ~1107 tokens reales (por encima del mínimo documentado de ~1024). Verificado también con SDK directo (4 llamadas, prefijos de 1107 y 1302 tokens). LangChain `astream()` tampoco expone `usage_metadata` en el `response_metadata` de streaming. El caching implícito **no se activa** con este modelo y este tamaño de prefijo. Estructura de la implementación es correcta (prefijo estable primero); el criterio de `cached_token_count > 0` queda sin satisfacer como hallazgo documentado, no como defecto de implementación.
+- **Resultado:** **completado** ✓ (gate humano superado, merge squash + tag `05-block-CH` pendiente).
+  - ✓ Stream da tokens + evento `citations`.
+  - ✓ 2º turno con `session_id` carga historial.
+  - ✓ Traza Phoenix: spans rewrite + hybrid_search + rerank + ChatGoogleGenerativeAI presentes.
+  - ✗ `cached_token_count = None` — hallazgo (investigación abierta, issue #12). Criterio `cached_token_count > 0` sin satisfacer → documentado, no bloqueante.
 
 ---
 
@@ -100,8 +114,3 @@ Medido con `scripts/manual_retrieval_check.py` sobre los **30 single-turn con `g
 | MRR@5 | 0.629 | **0.801** |
 
 Gate del bloque (recall@5 > 0.7) **superado** en ambas configuraciones.
-
-## Gate de revisión (Bloque R)
-
-- **Criterio (acceptance specs 02/03/04):** las 3 funciones testeadas con Gemini mockeado; cada fase emite span en Phoenix; `/retrieve` devuelve top-5 con scores; recall@5 baseline > 0.7.
-- **Resultado:** superado ✓ (gate humano pendiente de merge).
