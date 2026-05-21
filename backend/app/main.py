@@ -1,12 +1,14 @@
 """FastAPI application entrypoint.
 
-Exposes a liveness endpoint and the retrieval router. Tracing is initialised at
-startup (OpenTelemetry → Phoenix, OpenInference for LangChain; ADR-008).
-Feature routers (auth, chat, evals, security) are wired in later blocks.
+Exposes a liveness endpoint, the retrieval router and the chat router. Tracing
+is initialised at startup (OpenTelemetry → Phoenix, OpenInference for
+LangChain; ADR-008). Feature routers (auth, evals, security) are wired in
+later blocks.
 """
 
 from fastapi import FastAPI
 
+from app.chat.router import router as chat_router
 from app.config import get_settings
 from app.observability.tracing import setup_tracing
 from app.retrieval.router import router as retrieval_router
@@ -19,6 +21,7 @@ setup_tracing(endpoint=settings.phoenix_collector_endpoint)
 app = FastAPI(title=settings.app_name, version="0.1.0")
 
 app.include_router(retrieval_router)
+app.include_router(chat_router)
 
 
 @app.get("/health", tags=["ops"])
