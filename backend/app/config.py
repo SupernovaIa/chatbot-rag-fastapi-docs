@@ -38,6 +38,10 @@ class Settings(BaseSettings):
     rerank_timeout_s: float = 5.0
     rewrite_timeout_s: float = 1.5
 
+    # Chat / generation (specs 05/06/07).
+    generate_timeout_s: float = 60.0  # max wall-clock time for one generation
+    history_window_n: int = 5  # sliding window: last N complete turns (ADR-005)
+
     # Secrets (no defaults in production; placeholders ease local boot)
     google_api_key: str = ""
     jwt_secret: str = "change-me"

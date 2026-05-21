@@ -1,48 +1,80 @@
 # SESSION.md — Estado de la sesión actual
 
-> Fichero dinámico. Se actualiza al inicio y al final de cada sesión de construcción. Cualquier agente que abra el repo lee este fichero para saber dónde se quedó el trabajo.
+> Fichero dinámico. Se actualiza al inicio y al final de cada sesión de construcción. Cualquier agente que abra el repo lea este fichero para saber dónde se quedó el trabajo.
 
 ## Bloque actual
 
-**Bloque:** R (Retrieval modular)
+**Bloque:** CH (Backend de chat)
 **Estado:** gate_pending
-**Fecha apertura:** 2026-05-21 (sesión 4)
-**Última actualización:** 2026-05-21 (cierre de sesión 4)
+**Fecha apertura:** 2026-05-21 (sesión 5)
+**Última actualización:** 2026-05-21 (cierre de sesión 5)
 
-> Bloque G quedó completado ✓ (tag `03-block-G` · PR #5 mergeado a main). Bloque B completado ✓ (tag `02-block-B`). El histórico se conserva más abajo.
+> Bloque R completado ✓ (tag `04-block-R` pendiente de merge humano). Bloque G completado ✓ (tag `03-block-G` · PR #5). Bloque B completado ✓ (tag `02-block-B`). El histórico se conserva más abajo.
 
 ## Objetivo del bloque
 
-Retrieval modular (specs 02/03/04, ADRs 004/005/008): tracing OpenTelemetry→Phoenix con OpenInference para LangChain y helper `@traced`; módulo `backend/app/retrieval/` con búsqueda híbrida (denso+BM25+RRF en SQL), LLM-reranker RankGPT con fallback robusto y query rewriting multi-turn; prompts versionados; tests con Gemini mockeado; endpoint `/retrieve`; baseline recall@5/MRR sobre el gold.
-
-## Baseline de retrieval (sesión 4, corpus_sha 40e33e4)
-
-Medido con `scripts/manual_retrieval_check.py` sobre los **30 single-turn con `gold_chunks`** (de los 35 single-turn; los 5 `no_se` g-31…g-35 no tienen gold y se excluyen del recall por diseño). Match por `(source, section)`.
-
-| Métrica | Híbrido solo | Pipeline + reranker |
-|---|---|---|
-| recall@5 | 0.750 | **0.867** |
-| hit-rate@5 | 0.833 (25/30) | **0.900 (27/30)** |
-| MRR@5 | 0.629 | **0.801** |
-
-Gate del bloque (recall@5 > 0.7) **superado** en ambas configuraciones. El reranker RankGPT aporta +0.117 recall y +0.172 MRR sobre el híbrido.
+Backend de chat (specs 05/06/07): migración Alembic `chat_sessions` + `chat_messages`; `prompts/system.md` con prefijo estable para caching implícito; endpoint `POST /chat` con `EventSourceResponse` (pipeline rewrite→retrieve→rerank→generate, persistencia, cancelación al desconectar); endpoints `GET /chat/sessions[/{id}]`; spans por fase en Phoenix con `cached_token_count`; tests mockeados de toda la capa.
 
 ## Próxima acción concreta
 
-Al reanudar: gate humano. Si pasa, abrir/mergear la PR de `feat/retrieval-modular` a `main` (squash) y crear el tag `04-block-R`; si no, documentar el fallo y seguir en el bloque. El agente abre la PR y PARA (merge + tag son acción humana).
+Al reanudar: gate humano. Si pasa, mergear la PR de `feat/chat-endpoint` a `main` (squash) y crear el tag `05-block-CH`; si no, documentar el fallo y seguir en el bloque.
 
 ## Pendientes en este bloque
 
-- Tests de integración con pgvector real en CI (ahora solo unitarios con Gemini/DB mockeados).
-- Multi-turn: el rewriter se testea con historial sintético; la persistencia real del historial llega en bloque CH (spec 06).
-- Afinado de RRF k=60 y pesos denso/sparse: a medir en iteración futura.
-- **BM25 cross-lingual: query español vs corpus inglés (hallazgo de la verificación de tracing):** en una verificación `sparse_results_count=0`. Causa real: las queries del gold están en español y el corpus FastAPI está en inglés. **No es un problema de config del `tsvector`**: los docs en inglés deben seguir indexados con config `english` (ponerlos en `spanish` sería peor: stemming equivocado para texto inglés). BM25 aporta poco porque query y documento **no comparten léxico** salvo identificadores de código/API (`FastAPI`, `int`, `response_model`); el puente entre idiomas lo hace el **embedding denso multilingüe**, y por eso el recall se sostiene (0.867) con denso+reranker. No requiere reindexar. Decisión de diseño de retrieval a evaluar en el bloque de iteración:
-  - (a) Normalizar/traducir la query a inglés **solo** para la pierna sparse (mantener la original para el denso).
-  - (b) Limitar BM25 a match de símbolos de código/API (extraer identificadores de la query).
-  - (c) Asumir denso+reranker como camino principal y documentar BM25 como aporte marginal para tokens compartidos.
-  Probablemente requiere un **ADR corto** (estrategia léxica en retrieval cross-lingual). Pendiente para más adelante. No bloquea el gate.
+- Auth: `POST /chat` y los endpoints GET no tienen JWT (marcado como `TODO: add auth in block AU`). Se activa en el bloque de autenticación.
+- OTel span para la fase de generación: `set_span_attributes` dentro de `event_generator()` es no-op (el route handler ya retornó, no hay span activo). Solución: `tracer.start_span()` manual pasado al generador. Marcado con `TODO(block-F)` en el router.
+- Frontend: los endpoints chat son consumibles desde el frontend (bloque FE).
 
-## Completado en esta sesión (Bloque R)
+## Completado en esta sesión (Bloque CH)
+
+- [x] **Bloque R marcado como iniciado** — primer commit de esta rama (convención CLAUDE.md).
+- [x] `backend/migrations/versions/0002_create_chat_tables.py` — tablas `chat_sessions` (id UUID PK, user_id nullable, timestamps) y `chat_messages` (turn_idx, role user/assistant, content, citations JSONB). Constraint UNIQUE `(session_id, turn_idx, role)`; la spec decía `(session_id, turn_idx)` — corrección documentada en el comentario de la migración (con ese constraint no sería posible insertar user y assistant del mismo turno).
+- [x] `prompts/system.md` — system prompt versionado con front-matter YAML; ~1 200 tokens estimados (>mínimo Flash ~1 024 para caching implícito); instrucciones de rol, formato, citación con ejemplos, multi-turn, tono.
+- [x] `backend/app/chat/models.py` — dataclasses `ChatSession`, `ChatMessage`, `ChatTurn`, `Citation`, `UsageMeta` (con `from_response_metadata`), `StreamEvent`.
+- [x] `backend/app/chat/store.py` — `ChatHistoryStore`: `get_or_create_session`, `load_history` (sliding window N=5), `save_turn` (transacción única con ON CONFLICT DO NOTHING), `list_sessions`, `get_session`, `get_session_messages`, `next_turn_idx`.
+- [x] `backend/app/chat/prompts.py` — `build_prompt` (SystemMessage estable + HumanMessage dinámico para caching), `build_context_block`, `build_history_block`, `citations_from_candidates`, `system_prompt_hash`.
+- [x] `backend/app/chat/generator.py` — `StreamingSession` (mutable state: `full_text`, `usage`, `cancelled`); `stream_chat` async generator: tokens → error/cancelación → captura `UsageMeta` del último chunk (incluye `cached_content_token_count`). `ChatGoogleGenerativeAI` importado a nivel de módulo (parcheable en tests).
+- [x] `backend/app/chat/router.py` — `POST /chat/`: load history → `asyncio.to_thread(retrieve)` → `build_prompt` → `stream_chat` → persist turn; disconnect watcher via `asyncio.create_task`; spans con `session_id`, `turn_idx`, `history_turns_loaded`, `prompt_hash`, `cached_token_count`. `GET /chat/sessions`, `GET /chat/sessions/{session_id}` (sin auth).
+- [x] `backend/app/config.py` — añadidos `generate_timeout_s = 60.0` y `history_window_n = 5`.
+- [x] `backend/app/main.py` — incluye `chat_router` bajo el prefijo `/chat`.
+- [x] `backend/pyproject.toml` + `uv.lock` — dep `sse-starlette>=2.1` (instalada 3.4.4).
+- [x] Tests: 46 nuevos tests (store × 8, prompts × 11, generator × 9, router × 12 + 3 GET), **135 total, todos verdes**. Ruff limpio.
+
+## Decisiones tomadas en esta sesión (Bloque CH)
+
+- **UNIQUE (session_id, turn_idx, role)** en vez de `(session_id, turn_idx)`: la spec mencionaba la segunda, pero user y assistant comparten `turn_idx` → constraint incorrecto. Documentado en la migración.
+- **No `CachedContent` explícito**: umbral 32 768 tokens, muy por encima del system prompt. Caching implícito (automático, sin gestión de `cache_id`/TTL).
+- **`build_prompt` de dos mensajes**: SystemMessage (prefijo estable) + HumanMessage (contexto+historial+query). El historial va embebido en el HumanMessage para maximizar la estabilidad del prefijo en el primer mensaje (caching).
+- **`asyncio.to_thread` para retrieval/DB**: las funciones de retrieval y store son síncronas (usan SQLAlchemy síncrono). Se ejecutan en el thread pool del event loop desde el router async.
+- **`ChatGoogleGenerativeAI` a nivel de módulo** en `generator.py`: necesario para que `patch("app.chat.generator.ChatGoogleGenerativeAI")` funcione en tests (un import dentro de la función no es parcheable por nombre de módulo).
+- **Disconnect watcher**: `asyncio.create_task(_watch_disconnect())` que sondea `request.is_disconnected()` cada 250 ms y setea un `asyncio.Event`; el generator lo comprueba entre chunks y sale limpio sin persistir el turno incompleto (conserva free tier).
+- **Hallazgo caching implícito**: `gemini-3.5-flash` (3.5-flash-05-2026) devuelve `cached_content_token_count=None` con prefijos de 1107–1302 tokens reales (verificado con SDK directo, 4+ llamadas). Dos causas independientes: (1) LangChain `astream()` no expone `usage_metadata` en `response_metadata` de streaming chunks; (2) el modelo no activa caching implícito a este tamaño de prefijo. El caching explícito (`CachedContent`) requeriría 32 768 tokens mínimos. La estructura de la implementación es correcta (prefijo estable primero), el criterio `cached_token_count > 0` no se satisface y se documenta como hallazgo.
+- **Bug OTel span generador**: `set_span_attributes` dentro de `event_generator()` es no-op; el route handler ya retornó cuando el generador SSE completa. Eliminado, sustituido por `logger.debug`. Fix diferido a bloque F con `tracer.start_span()` manual (TODO en router).
+- **Prompts en Docker**: los `.md` de `prompts/` están en la raíz del repo, fuera del build context `./backend`. Resuelto añadiendo bind mount `./prompts:/prompts:ro` en `docker-compose.yml`.
+
+## Verificación pre-cierre (sesión 5)
+
+- `cd backend && uv run ruff check .` → `All checks passed!` ✓
+- `cd backend && uv run pytest tests/ -q` → 135 passed ✓
+- `npx commitlint --from $(git merge-base HEAD main) --to HEAD` → exit 0 (rama aún sin commits; el commit de cierre será convencional) ✓
+- **Verificación live** (stack Docker real, `gemini-3.5-flash`): turno 1 y turno 2 con mismo `session_id` → stream de tokens + evento `citations` en ambos; historial persistido y recuperado confirmado vía `GET /chat/sessions/{id}`; 19 spans en Phoenix (rewrite + hybrid_search + rerank + 2× ChatGoogleGenerativeAI LLM); `cached_content_token_count=None` — hallazgo documentado.
+
+## Blockers (Bloque CH)
+
+- Ninguno.
+
+## Gate de revisión (Bloque CH)
+
+- **Criterio (acceptance specs 05/06/07):** stream da tokens + evento `citations`; 2º turno con `session_id` carga historial (N=5); traza Phoenix tiene las 4 fases; `cached_token_count > 0` desde el 2º turno si el prefijo supera el mínimo.
+- **Resultado:** **pendiente** (gate humano). Evidencia verificada live:
+  - ✓ Stream da tokens + evento `citations` (verificado con `curl -N` contra stack Docker real).
+  - ✓ 2º turno con `session_id` carga historial (`GET /chat/sessions/{id}` confirma persistencia).
+  - ✓ Traza Phoenix: spans rewrite + hybrid_search + rerank + ChatGoogleGenerativeAI presentes (19 spans para 2 turnos, incluye fases de retrieval + LLM).
+  - ✗ `cached_token_count = None` — **hallazgo:** `gemini-3.5-flash` (3.5-flash-05-2026) devuelve `cached_content_token_count=None` incluso con prefijo de ~1107 tokens reales (por encima del mínimo documentado de ~1024). Verificado también con SDK directo (4 llamadas, prefijos de 1107 y 1302 tokens). LangChain `astream()` tampoco expone `usage_metadata` en el `response_metadata` de streaming. El caching implícito **no se activa** con este modelo y este tamaño de prefijo. Estructura de la implementación es correcta (prefijo estable primero); el criterio de `cached_token_count > 0` queda sin satisfacer como hallazgo documentado, no como defecto de implementación.
+
+---
+
+## Completado en sesiones anteriores (Bloque R)
 
 - [x] `backend/app/observability/tracing.py` — setup OTel→Phoenix (OpenInference LangChain) + helper `@traced` + `set_span_attributes`; defensivo (no-op si Phoenix/libs no disponibles, gateado por `DISABLE_TRACING`).
 - [x] `backend/app/retrieval/hybrid.py` — `PgVectorHybridSearcher`: denso (coseno `<=>`) + BM25 (`ts_rank_cd`) + RRF en una sola query SQL con CTEs y FULL OUTER JOIN. Span `hybrid_search` con `dense_results_count`/`sparse_results_count`/`combined_top_k`.
@@ -55,112 +87,21 @@ Al reanudar: gate humano. Si pasa, abrir/mergear la PR de `feat/retrieval-modula
 - [x] `backend/app/config.py` — `gemini_flash_model` (anclado `gemini-3.5-flash` 2026-05-21), `corpus_sha`, params de retrieval (candidatos 20, top_k 5, rrf_k 60, timeouts).
 - [x] `scripts/manual_retrieval_check.py` — recall@5/MRR/hit-rate sobre el gold (híbrido o pipeline completo).
 - [x] Tests: 89 verdes (26 de retrieval: hybrid/reranker/rewriter/orchestrator/router + `_extract_text` + propagación/fallback de timeout), Gemini y DB mockeados. Ruff limpio.
-- [x] **Tracing verificado en Phoenix (dashboard):** query real por el orquestador con tracing activo contra `localhost:6006`; traza única con jerarquía `retrieve` (root) → `rewrite` / `hybrid_search` / `rerank` → `ChatGoogleGenerativeAI` (kind=LLM, auto-instrumentado por OpenInference). Atributos por fase presentes (`dense/sparse_results_count`, `combined_top_k`, `input/output_count`, `latency_ms`, `fallback_used`, `original/rewritten_query`, `history_turns_used`).
+- [x] **Tracing verificado en Phoenix (dashboard):** query real por el orquestador con tracing activo contra `localhost:6006`; traza única con jerarquía `retrieve` (root) → `rewrite` / `hybrid_search` / `rerank` → `ChatGoogleGenerativeAI` (kind=LLM, auto-instrumentado por OpenInference). Atributos por fase presentes.
 
-## Decisiones tomadas en esta sesión (Bloque R)
+## Baseline de retrieval (sesión 4, corpus_sha 40e33e4)
 
-- **Model ID Flash anclado `gemini-3.5-flash`** (verificado vía `models.list()` de Google AI Studio el 2026-05-21; coincide con default de ADR-001).
-- **Bug Gemini 3.x thinking**: `ChatGoogleGenerativeAI` devuelve `content` como lista de bloques (`[{"type":"text","text":...}]`); la primera corrida del reranker caía en fallback por extraer cadena vacía. Corregido con `_extract_text` + test. Sin el fix, rerank ≡ híbrido (0.750).
-- **RankGPT por chunk_hash**: el prompt usa `chunk_hash` como id; el parser descarta ids no presentes y reañade candidatos omitidos preservando el orden híbrido.
-- **recall@5 sobre 30 (no 35)**: los 5 `no_se` tienen `gold_chunks` vacío (no medibles para recall); se reportan aparte. Interpretación documentada en el script.
-- Embeddings de query con `task_type="RETRIEVAL_QUERY"` (corpus indexado con `RETRIEVAL_DOCUMENT`); reutiliza `GeminiEmbeddingsAdapter`.
-- **Timeout del reranker (fix de review):** `config={"timeout":…}` en `.invoke()` se ignoraba (`RunnableConfig` no tiene esa clave) → el timeout de spec 03 no se aplicaba (span medía 23 s sin fallback). Ahora el timeout vive en el cliente: `GeminiChatAdapter(timeout=…)` y clientes dedicados para rewrite (`rewrite_timeout_s`) y rerank (`rerank_timeout_s`); al excederse, el SDK lanza y la cadena de fallback devuelve el orden híbrido. Tests añadidos (propagación + fallback por timeout). Log de query bajado a DEBUG (PII, CLAUDE.md). Menores restantes en issue de follow-up.
+Medido con `scripts/manual_retrieval_check.py` sobre los **30 single-turn con `gold_chunks`** (de los 35 single-turn; los 5 `no_se` g-31…g-35 no tienen gold y se excluyen del recall por diseño). Match por `(source, section)`.
 
-## Verificación pre-cierre (sesión 4)
+| Métrica | Híbrido solo | Pipeline + reranker |
+|---|---|---|
+| recall@5 | 0.750 | **0.867** |
+| hit-rate@5 | 0.833 (25/30) | **0.900 (27/30)** |
+| MRR@5 | 0.629 | **0.801** |
 
-- `cd backend && uv run ruff check .` → `All checks passed!` ✓
-- `cd backend && uv run pytest tests/ -q` → 89 passed ✓
-- `npx commitlint --from $(git merge-base HEAD main) --to HEAD` → exit 0 (rango vacío: aún sin commits de sesión; el commit de cierre será convencional) ✓
-
-## Blockers (Bloque R)
-
-- Ninguno.
+Gate del bloque (recall@5 > 0.7) **superado** en ambas configuraciones.
 
 ## Gate de revisión (Bloque R)
 
-- **Criterio (acceptance specs 02/03/04):** las 3 funciones (`retrieve_hybrid`, `rerank`, `rewrite_query`) testeadas con Gemini mockeado; cada fase emite span en Phoenix (rewrite, hybrid_search, rerank, retrieve) + span LLM; `/retrieve` devuelve top-5 con scores; recall@5 baseline > 0.7.
-- **Resultado:** **pendiente** (gate humano). Evidencia: 89 tests verdes + ruff limpio; traza con span por fase confirmada en el dashboard de Phoenix; `/retrieve` verificado vía TestClient (top-5 con `rrf_score`/ranks/`rerank_position`); recall@5 = 0.750 (híbrido) y 0.867 (con reranker), ambos > 0.7.
-
-## Completado en esta sesión (Bloque G)
-
-- [x] `corpus/sample/fastapi-docs/evals/` + `README.md` con el schema documentado.
-- [x] `gold.jsonl` — 40 ejemplos **firmados** (`reviewed_by: javi`, `reviewed_at: 2026-05-21`); distribución exacta (15 factual / 8 paráfrasis / 7 multi-fuente / 5 no sé / 5 multi-turno).
-- [x] `scripts/validate_gold.py` — valida JSONL, schema, distribución, firma y existencia de cada `gold_chunk` en pgvector con el SHA actual. **Pasa en verde.**
-- [x] `backend/tests/test_validate_gold.py` — 16 tests, **16/16 verdes**.
-- [x] Verificado: los 32 pares `gold_chunks` existen en pgvector (SHA `40e33e4`).
-- [x] Ajuste en revisión: g-02 ahora con dos chunks (añadido «Data validation») para fundamentar el error HTTP 422.
-- [x] `REVIEW.md` (andamiaje de revisión) sacado del entregable: `git rm` + ignorado vía `corpus/**/evals/REVIEW.md`. Deliverable = `gold.jsonl` + `validate_gold.py` + tests + README.
-
-## Deuda técnica (Bloque G)
-
-- Cobertura concentrada: 40 ejemplos sobre ~15 de 144 ficheros, sesgados al tutorial básico. Ampliar a `advanced/`, `how-to/`, seguridad, dependencias, SQL en iteración futura.
-- Multi-fuente g-27 y g-30 son multi-sección del mismo fichero (válido por spec 08), no documentos distintos.
-
-## Blockers (Bloque G)
-
-- Ninguno.
-
-## Verificación pre-cierre (sesión 3)
-
-- `uv run ruff check .` → `All checks passed!` ✓
-- `uv run pytest tests/ -q` → 63 passed ✓
-- `npx commitlint --from <merge-base> --to HEAD` → exit 0 ✓
-
-## Gate de revisión (Bloque G)
-
-- **Criterio (acceptance spec 08):** `gold.jsonl` con 40 entradas válidas (parseables, schema cumplido); `scripts/validate_gold.py` pasa sin errores; cada ejemplo con `reviewed_by` y `reviewed_at`; distribución 15/8/7/5/5.
-- **Resultado:** superado ✓ (gate humano: PR #5 mergeado a main el 2026-05-21). Todos los criterios cumplidos — validador en verde, 40 firmados por Javi, distribución exacta, 32 pares `gold_chunks` presentes en pgvector con el SHA actual. Follow-ups menores en issue #6 (no bloqueantes).
-
-## Completado en esta sesión
-
-- [x] Snapshot de las FastAPI docs pinneadas al SHA `40e33e4` (tag 0.115.0), 144 ficheros `.md` en `corpus/sample/fastapi-docs/`.
-- [x] `corpus/sample/fastapi-docs/SOURCE.md` con origen, SHA, licencia e instrucciones de reproducción.
-- [x] `scripts/upload_corpus.py` — sube `.md` al container `corpus` de Azurite; idempotente (overwrite).
-- [x] `scripts/index_corpus.py` — pipeline completo de indexación; idempotente via `chunk_hash`.
-- [x] `backend/app/indexing/models.py` — `BlobItem`, `Chunk` (chunk_hash SHA-256 auto-calculado).
-- [x] `backend/app/indexing/ports.py` — `BlobLoaderPort`, `EmbeddingsPort`, `ChunkStorePort` (Protocol).
-- [x] `backend/app/indexing/loader.py` — `AzuriteBlobLoader` (azure-storage-blob SDK).
-- [x] `backend/app/indexing/splitter.py` — `MarkdownHeaderTextSplitter` → `RecursiveCharacterTextSplitter` (512 tokens, 80 overlap, tiktoken cl100k_base).
-- [x] `backend/app/indexing/embeddings.py` — `GeminiEmbeddingsAdapter` (google-genai SDK, batching, tenacity backoff, L2 normalización).
-- [x] `backend/app/indexing/store.py` — `PgVectorChunkStore` (upsert ON CONFLICT DO NOTHING en chunk_hash, executemany en batches de 500, conteo por corpus_sha).
-- [x] `backend/app/indexing/pipeline.py` — `run_indexing()` orquestador.
-- [x] `backend/migrations/versions/0001_create_chunks_table.py` — tabla `chunks` (vector(1536), jsonb, tsvector), HNSW (cosine, m=16, ef=64), GIN, índice corpus_sha.
-- [x] `backend/app/config.py` — añadida `azure_storage_connection_string`.
-- [x] `docker-compose.yml` — `AZURE_STORAGE_CONNECTION_STRING` pasado al backend; `--skipApiVersionCheck` en Azurite.
-- [x] `docs/azurite-setup.md` — documenta AccountKey real de la imagen, endpoint host vs container.
-- [x] `pyproject.toml` — dependencias añadidas: langchain, langchain-text-splitters, langchain-google-genai, google-genai, azure-storage-blob, tenacity, tiktoken, numpy, pytest-asyncio.
-- [x] Tests: 47/47 verdes (incluye suite de retry con `_is_retryable`).
-- [x] **Validación real del índice:** 144 blobs → 1 775 chunks spliteados → 1 765 chunks únicos en pgvector (10 deduplicados por contenido idéntico); idempotencia confirmada (2ª pasada → `chunks_inserted=0`); tabla limpia (0 filas con otro corpus_sha).
-
-## Blockers
-
-- Ninguno.
-
-## Decisiones tomadas en esta sesión
-
-- Se migró de `google-generativeai` (deprecado) a `google-genai >= 1.0`. El interface de `embed_content` cambia: `contents=` en lugar de `content=`, y la respuesta es `response.embeddings[i].values`.
-- `content_tsv` no es columna GENERATED ALWAYS: el store calcula `to_tsvector('english', content)` en el INSERT para evitar conflicto con el DML explícito.
-- Batch size por defecto = 50 (conservador para free tier Gemini). Configurable via env `BATCH_SIZE`.
-- Los tests de embeddings mockean `adapter._client.models.embed_content` directamente (no patch de módulo) porque el cliente se instancia en `__init__`.
-- Retry acotado a `google.genai.errors.APIError` con códigos `{408, 429, 500, 502, 503, 504}` + `ConnectionError`/`TimeoutError`/`OSError` (no `Exception` genérico).
-- Store usa `executemany` en batches de 500 + `count_by_sha` para conteo idempotente sin RETURNING.
-- La discrepancia 1 775 vs 1 765 chunks es deduplicación esperada: 10 secciones de contenido idéntico aparecen en múltiples `.md`; `ON CONFLICT DO NOTHING` en `chunk_hash` es el comportamiento correcto.
-
-## Gate de revisión
-
-- **Criterio:** 47 tests verdes; migración `0001` genera tabla `chunks` con UNIQUE en `chunk_hash`, índices HNSW y GIN; `upload_corpus.py` + `index_corpus.py` idempotentes; corpus > 1000 chunks; metadatos (`source`, `section`, `corpus_sha`) correctos en muestra; segunda pasada da `chunks_inserted=0`.
-- **Resultado:** completo ✓ — todos los criterios superados. `COUNT(*) = 1765`, embeddings 1536 dims, tabla limpia, idempotencia verificada.
-
-## Comandos útiles ahora (Bloque C)
-
-```bash
-# Levantar el stack
-docker compose up -d
-
-# Verificar índice existente
-docker compose exec postgres psql -U postgres -d chatbot_rag \
-  -c "SELECT corpus_sha, COUNT(*) FROM chunks GROUP BY corpus_sha;"
-
-# Tests unitarios
-cd backend && uv run pytest tests/ -v
-```
+- **Criterio (acceptance specs 02/03/04):** las 3 funciones testeadas con Gemini mockeado; cada fase emite span en Phoenix; `/retrieve` devuelve top-5 con scores; recall@5 baseline > 0.7.
+- **Resultado:** superado ✓ (gate humano pendiente de merge).

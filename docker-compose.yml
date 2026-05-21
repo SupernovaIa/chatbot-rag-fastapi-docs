@@ -56,6 +56,12 @@ services:
   backend:
     build:
       context: ./backend
+    volumes:
+      # Prompts live at the repo root (outside the backend build context).
+      # The app resolves prompts at Path(__file__).parents[3] / "prompts" which
+      # maps to /prompts inside the container. Bind-mount so the image picks
+      # them up without changing the build context.
+      - ./prompts:/prompts:ro
     environment:
       DATABASE_URL: postgresql+psycopg://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/chatbot_rag
       GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}

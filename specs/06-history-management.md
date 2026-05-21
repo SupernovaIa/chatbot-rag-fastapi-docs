@@ -16,6 +16,7 @@ Persistir el historial conversacional server-side por sesión y exponerlo al pip
 
 - [ ] Tabla `chat_sessions`: `id UUID, user_id, created_at, updated_at`.
 - [ ] Tabla `chat_messages`: `id, session_id, turn_idx, role (user|assistant), content, citations jsonb, created_at`.
+  - Constraint UNIQUE `(session_id, turn_idx, role)` — no `(session_id, turn_idx)`: cada turno genera **dos** filas (una con `role='user'` y otra con `role='assistant'`), ambas con el mismo `turn_idx`. Una constraint sobre solo `(session_id, turn_idx)` rechazaría la segunda inserción.
 - [ ] Al recibir un turno: cargar últimos 5 pares (user + assistant) de la sesión, pasar al pipeline.
 - [ ] Al final del turno: insertar mensaje user y mensaje assistant con sus citas.
 - [ ] No se borran mensajes antiguos: la ventana es solo de lectura para el prompt.

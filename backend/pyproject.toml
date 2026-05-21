@@ -21,6 +21,7 @@ dependencies = [
     "tenacity>=9.0",
     "tiktoken>=0.8",
     "numpy>=2.0",
+    "sse-starlette>=2.1",
     "arize-phoenix-otel>=0.16.1",
     "openinference-instrumentation-langchain>=0.1.66",
     "opentelemetry-exporter-otlp>=1.42.1",
