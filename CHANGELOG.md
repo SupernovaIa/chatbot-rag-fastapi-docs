@@ -39,7 +39,7 @@ Próximas entradas por bloque.
 - `content_tsv` no es columna `GENERATED ALWAYS`: el store la computa en el INSERT via `to_tsvector('english', content)`.
 
 ### Notas
-- Indexación real con `GOOGLE_API_KEY` pendiente de validar en stack Docker (`COUNT(*) > 1000`).
+- Indexación real validada: 144 blobs → 1 775 chunks spliteados → **1 765 chunks únicos** en pgvector (10 deduplicados por contenido idéntico entre ficheros; comportamiento correcto de `ON CONFLICT DO NOTHING`). Segunda pasada: `chunks_inserted=0` — idempotencia confirmada. Tabla limpia: único `corpus_sha = 40e33e4...`.
 
 ---
 
