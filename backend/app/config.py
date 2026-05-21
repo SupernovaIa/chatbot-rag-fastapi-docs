@@ -17,6 +17,10 @@ class Settings(BaseSettings):
     # Postgres + pgvector
     database_url: str = "postgresql+psycopg://postgres:postgres@postgres:5432/chatbot_rag"
 
+    # Azure Blob Storage (Azurite in dev, Azure Blob in prod — same SDK).
+    # Must be set in .env (see .env.example and docs/azurite-setup.md).
+    azure_storage_connection_string: str = ""
+
     # Observability
     phoenix_collector_endpoint: str = "http://phoenix:6006"
 

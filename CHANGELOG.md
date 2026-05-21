@@ -10,6 +10,39 @@ Próximas entradas por bloque.
 
 ---
 
+## [Bloque B] — 2026-05-21
+
+### Añadido
+- `corpus/sample/fastapi-docs/`: 144 ficheros `.md` de la documentación oficial de FastAPI v0.115.0 (tag), pinneados al commit SHA `40e33e492dbf4af6172997f4e3238a32e56cbe26`.
+- `corpus/sample/fastapi-docs/SOURCE.md`: origen, SHA, licencia e instrucciones de reproducción del snapshot.
+- `scripts/upload_corpus.py`: sube los `.md` al container `corpus` de Azurite; idempotente (overwrite).
+- `scripts/index_corpus.py`: pipeline completo de indexación; idempotente via `chunk_hash`.
+- `backend/app/indexing/models.py`: `BlobItem`, `Chunk` con `chunk_hash` SHA-256 auto-calculado.
+- `backend/app/indexing/ports.py`: puertos `BlobLoaderPort`, `EmbeddingsPort`, `ChunkStorePort` (Protocol, ADR-011).
+- `backend/app/indexing/loader.py`: `AzuriteBlobLoader` (azure-storage-blob SDK).
+- `backend/app/indexing/splitter.py`: `MarkdownHeaderTextSplitter` → `RecursiveCharacterTextSplitter` (512 tokens, 80 overlap, tiktoken cl100k_base).
+- `backend/app/indexing/embeddings.py`: `GeminiEmbeddingsAdapter` (google-genai SDK, batching, tenacity backoff exponencial, L2 normalización tras MRL 3072→1536).
+- `backend/app/indexing/store.py`: `PgVectorChunkStore` (upsert `ON CONFLICT DO NOTHING` en `chunk_hash`).
+- `backend/app/indexing/pipeline.py`: `run_indexing()` — orquestador blob→split→embed→store.
+- `backend/migrations/versions/0001_create_chunks_table.py`: tabla `chunks` (vector(1536), jsonb, tsvector), HNSW cosine (m=16, ef_construction=64), GIN en `content_tsv`, índice en `corpus_sha`.
+- Tests unitarios: 33/33 verdes — `test_embeddings` (11), `test_models` (5), `test_pipeline` (8), `test_splitter` (8), `test_health` (1).
+
+### Cambiado
+- `backend/app/config.py`: añadido `azure_storage_connection_string`.
+- `backend/pyproject.toml`: dependencias de indexación añadidas (langchain, langchain-text-splitters, langchain-google-genai, google-genai, azure-storage-blob, tenacity, tiktoken, numpy, pytest-asyncio).
+- `docker-compose.yml`: `AZURE_STORAGE_CONNECTION_STRING` pasado al backend.
+- `.env.example`: añadidas `AZURE_STORAGE_CONNECTION_STRING` y `BATCH_SIZE`.
+
+### Decisiones documentadas
+- Spec 01 implementada. ADR-002 (pgvector) y ADR-003 (Azurite) aplicados.
+- Se migró de `google-generativeai` (deprecado) a `google-genai >= 1.0`.
+- `content_tsv` no es columna `GENERATED ALWAYS`: el store la computa en el INSERT via `to_tsvector('english', content)`.
+
+### Notas
+- Indexación real con `GOOGLE_API_KEY` pendiente de validar en stack Docker (`COUNT(*) > 1000`).
+
+---
+
 ## [Bloque A] — 2026-05-21
 
 ### Añadido
