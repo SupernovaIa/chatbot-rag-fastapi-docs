@@ -1,16 +1,14 @@
 # Revisión del dataset gold — Bloque G
 
-> Documento de trabajo para la revisión humana (Javi). Para cada ejemplo se muestra pregunta, respuesta esperada, notas y el **contenido real del chunk gold** extraído de pgvector (SHA `40e33e4`), para verificar que la respuesta está fundamentada.
+> Documento de la revisión humana (Javi), completada el 2026-05-21. Los 40 ejemplos están **firmados** (`reviewed_by: javi`). Se conserva como traza de la revisión: pregunta, respuesta esperada, notas y contenido real del chunk gold (pgvector, SHA `40e33e4`).
 
-> **Cómo firmar:** revisa, ajusta lo que veas y marca el visto. Al confirmar, relleno `reviewed_by: javi` y `reviewed_at` en `gold.jsonl` y vuelvo a pasar validador + test.
-
-**Total:** 40 ejemplos · 15 factual / 8 paráfrasis / 7 multi-fuente / 5 no sé / 5 multi-turno.
+**Total:** 40 ejemplos · 15 factual / 8 paráfrasis / 7 multi-fuente / 5 no sé / 5 multi-turno. **Estado: firmado ✓**
 
 ---
 
 ## Factual
 
-### g-01 · Factual
+### g-01 · Factual — firmado: javi (2026-05-21)
 
 **Pregunta:** ¿Qué comando de la FastAPI CLI arranca el servidor en modo desarrollo con auto-reload?
 
@@ -22,23 +20,25 @@
 - `fastapi-cli.md` → *FastAPI CLI > `fastapi dev`*
   > ## `fastapi dev`   Running `fastapi dev` initiates development mode.   By default, **auto-reload** is enabled, automatically reloading the server when you make changes to your code. This is resource-intensive and could be less stable than when it's disabled. You should only use it for development. It also listens on the IP address `127.0.0.1`, which is the IP for your machine to communicate with itself alone (`localhost`).
 
-- [ ] Visto y aprobado
+- [x] Visto y aprobado
 
-### g-02 · Factual
+### g-02 · Factual — firmado: javi (2026-05-21)
 
 **Pregunta:** Si declaro un parámetro de ruta como `int`, ¿qué hace FastAPI con el valor recibido?
 
 **Respuesta esperada:** Lo convierte (parsea) y valida como entero usando las anotaciones de tipo estándar de Python. Si el valor no es un entero válido, devuelve un error HTTP de validación.
 
-**Notas:** Factual sobre parsing/validación de tipos en path params.
+**Notas:** Factual sobre parsing/validación de tipos en path params. Segundo chunk (Data validation) fundamenta el error HTTP 422 al pasar un valor no entero.
 
 **Chunks gold:**
 - `tutorial/path-params.md` → *Path Parameters > Path parameters with types*
   > ## Path parameters with types   You can declare the type of a path parameter in the function, using standard Python type annotations:   ```Python hl_lines="7" {!../../../docs_src/path_params/tutorial002.py!} ```   In this case, `item_id` is declared to be an `int`.   /// check   This will give you editor support inside of your function, with error checks, completion, etc.   ///
+- `tutorial/path-params.md` → *Path Parameters > Data validation*
+  > ## Data validation   But if you go to the browser at <a href="http://127.0.0.1:8000/items/foo" class="external-link" target="_blank">http://127.0.0.1:8000/items/foo</a>, you will see a nice HTTP error of:   ```JSON { "detail": [ { "type": "int_parsing", "loc": [ "path", "item_id" ], "msg": "Input should be a valid integer, unable to parse string as an integer", "input": "foo", "url": "https://errors.pydantic.dev/2.1/v/int_parsing" } ] } ```   because the path parameter `item_
 
-- [ ] Visto y aprobado
+- [x] Visto y aprobado
 
-### g-03 · Factual
+### g-03 · Factual — firmado: javi (2026-05-21)
 
 **Pregunta:** En el ejemplo de parámetros de consulta del tutorial, ¿qué valores por defecto tienen `skip` y `limit`?
 
@@ -50,9 +50,9 @@
 - `tutorial/query-params.md` → *Query Parameters > Defaults*
   > ## Defaults   As query parameters are not a fixed part of a path, they can be optional and can have default values.   In the example above they have default values of `skip=0` and `limit=10`.   So, going to the URL:   ``` http://127.0.0.1:8000/items/ ```   would be the same as going to:   ``` http://127.0.0.1:8000/items/?skip=0&limit=10 ```   But if you go to, for example:   ``` http://127.0.0.1:8000/items/?skip=20 ```   The parameter values in your function will be:   * `ski
 
-- [ ] Visto y aprobado
+- [x] Visto y aprobado
 
-### g-04 · Factual
+### g-04 · Factual — firmado: javi (2026-05-21)
 
 **Pregunta:** ¿Cómo se declara un parámetro de consulta como opcional en FastAPI?
 
@@ -64,9 +64,9 @@
 - `tutorial/query-params.md` → *Query Parameters > Optional parameters*
   > ## Optional parameters   The same way, you can declare optional query parameters, by setting their default to `None`:   //// tab | Python 3.10+   ```Python hl_lines="7" {!> ../../../docs_src/query_params/tutorial002_py310.py!} ```   ////   //// tab | Python 3.8+   ```Python hl_lines="9" {!> ../../../docs_src/query_params/tutorial002.py!} ```   ////   In this case, the function parameter `q` will be optional, and will be `None` by default.   /// check   Also notice that **Fast
 
-- [ ] Visto y aprobado
+- [x] Visto y aprobado
 
-### g-05 · Factual
+### g-05 · Factual — firmado: javi (2026-05-21)
 
 **Pregunta:** ¿Qué clase se usa en FastAPI para devolver respuestas HTTP de error al cliente?
 
@@ -78,9 +78,9 @@
 - `tutorial/handling-errors.md` → *Handling Errors > Use `HTTPException`*
   > ## Use `HTTPException`   To return HTTP responses with errors to the client you use `HTTPException`.
 
-- [ ] Visto y aprobado
+- [x] Visto y aprobado
 
-### g-06 · Factual
+### g-06 · Factual — firmado: javi (2026-05-21)
 
 **Pregunta:** ¿De qué módulo procede originalmente la clase `BackgroundTasks`?
 
@@ -92,9 +92,9 @@
 - `tutorial/background-tasks.md` → *Background Tasks > Technical Details*
   > ## Technical Details   The class `BackgroundTasks` comes directly from <a href="https://www.starlette.io/background/" class="external-link" target="_blank">`starlette.background`</a>.   It is imported/included directly into FastAPI so that you can import it from `fastapi` and avoid accidentally importing the alternative `BackgroundTask` (without the `s` at the end) from `starlette.background`.   By only using `BackgroundTasks` (and not `BackgroundTask`), it's then possible to
 
-- [ ] Visto y aprobado
+- [x] Visto y aprobado
 
-### g-07 · Factual
+### g-07 · Factual — firmado: javi (2026-05-21)
 
 **Pregunta:** ¿Qué clase permite servir ficheros estáticos automáticamente desde un directorio?
 
@@ -108,9 +108,9 @@
 - `tutorial/static-files.md` → *Static Files > Use `StaticFiles`*
   > ## Use `StaticFiles`   * Import `StaticFiles`. * "Mount" a `StaticFiles()` instance in a specific path.   ```Python hl_lines="2  6" {!../../../docs_src/static_files/tutorial001.py!} ```   /// note | "Technical Details"   You could also use `from starlette.staticfiles import StaticFiles`.   **FastAPI** provides the same `starlette.staticfiles` as `fastapi.staticfiles` just as a convenience for you, the developer. But it actually comes directly from Starlette.   ///
 
-- [ ] Visto y aprobado
+- [x] Visto y aprobado
 
-### g-08 · Factual
+### g-08 · Factual — firmado: javi (2026-05-21)
 
 **Pregunta:** ¿Para qué sirve el parámetro `response_model` del decorador de la operación de ruta?
 
@@ -122,9 +122,9 @@
 - `tutorial/response-model.md` → *Response Model - Return Type > Recap*
   > ## Recap   Use the *path operation decorator's* parameter `response_model` to define response models and especially to ensure private data is filtered out.   Use `response_model_exclude_unset` to return only the values explicitly set.
 
-- [ ] Visto y aprobado
+- [x] Visto y aprobado
 
-### g-09 · Factual
+### g-09 · Factual — firmado: javi (2026-05-21)
 
 **Pregunta:** ¿De qué clase hereda directamente `FastAPI`?
 
@@ -136,9 +136,9 @@
 - `tutorial/first-steps.md` → *First Steps > Recap, step by step > Step 1: import `FastAPI`*
   > ## Recap, step by step   ### Step 1: import `FastAPI`   ```Python hl_lines="1" {!../../../docs_src/first_steps/tutorial001.py!} ```   `FastAPI` is a Python class that provides all the functionality for your API.   /// note | "Technical Details"   `FastAPI` is a class that inherits directly from `Starlette`.   You can use all the <a href="https://www.starlette.io/" class="external-link" target="_blank">Starlette</a> functionality with `FastAPI` too.   ///
 
-- [ ] Visto y aprobado
+- [x] Visto y aprobado
 
-### g-10 · Factual
+### g-10 · Factual — firmado: javi (2026-05-21)
 
 **Pregunta:** ¿En qué dirección IP escucha por defecto `fastapi run`?
 
@@ -150,9 +150,9 @@
 - `fastapi-cli.md` → *FastAPI CLI > `fastapi run`*
   > ## `fastapi run`   Executing `fastapi run` starts FastAPI in production mode by default.   By default, **auto-reload** is disabled. It also listens on the IP address `0.0.0.0`, which means all the available IP addresses, this way it will be publicly accessible to anyone that can communicate with the machine. This is how you would normally run it in production, for example, in a container.   In most cases you would (and should) have a "termination proxy" handling HTTPS for you
 
-- [ ] Visto y aprobado
+- [x] Visto y aprobado
 
-### g-11 · Factual
+### g-11 · Factual — firmado: javi (2026-05-21)
 
 **Pregunta:** En el contexto de CORS, ¿por qué elementos está formado un "origin"?
 
@@ -164,9 +164,9 @@
 - `tutorial/cors.md` → *CORS (Cross-Origin Resource Sharing) > Origin*
   > ## Origin   An origin is the combination of protocol (`http`, `https`), domain (`myapp.com`, `localhost`, `localhost.tiangolo.com`), and port (`80`, `443`, `8080`).   So, all these are different origins:   * `http://localhost` * `https://localhost` * `http://localhost:8080`   Even if they are all in `localhost`, they use different protocols or ports, so, they are different "origins".
 
-- [ ] Visto y aprobado
+- [x] Visto y aprobado
 
-### g-12 · Factual
+### g-12 · Factual — firmado: javi (2026-05-21)
 
 **Pregunta:** ¿Qué método del objeto de tareas en segundo plano se usa para registrar una tarea?
 
@@ -178,9 +178,9 @@
 - `tutorial/background-tasks.md` → *Background Tasks > Add the background task*
   > ## Add the background task   Inside of your *path operation function*, pass your task function to the *background tasks* object with the method `.add_task()`:   ```Python hl_lines="14" {!../../../docs_src/background_tasks/tutorial001.py!} ```   `.add_task()` receives as arguments:   * A task function to be run in the background (`write_notification`). * Any sequence of arguments that should be passed to the task function in order (`email`). * Any keyword arguments that should
 
-- [ ] Visto y aprobado
+- [x] Visto y aprobado
 
-### g-13 · Factual
+### g-13 · Factual — firmado: javi (2026-05-21)
 
 **Pregunta:** ¿Qué biblioteca realiza la validación de datos por debajo en FastAPI?
 
@@ -192,9 +192,9 @@
 - `tutorial/path-params.md` → *Path Parameters > Pydantic*
   > ## Pydantic   All the data validation is performed under the hood by <a href="https://docs.pydantic.dev/" class="external-link" target="_blank">Pydantic</a>, so you get all the benefits from it. And you know you are in good hands.   You can use the same type declarations with `str`, `float`, `bool` and many other complex data types.   Several of these are explored in the next chapters of the tutorial.
 
-- [ ] Visto y aprobado
+- [x] Visto y aprobado
 
-### g-14 · Factual
+### g-14 · Factual — firmado: javi (2026-05-21)
 
 **Pregunta:** ¿Cómo se llama lo que devuelve una función definida con `async def`?
 
@@ -206,9 +206,9 @@
 - `async.md` → *Concurrency and async / await > Coroutines*
   > ## Coroutines   **Coroutine** is just the very fancy term for the thing returned by an `async def` function. Python knows that it is something like a function, that it can start and that it will end at some point, but that it might be paused ⏸ internally too, whenever there is an `await` inside of it.   But all this functionality of using asynchronous code with `async` and `await` is many times summarized as using "coroutines". It is comparable to the main key feature of Go, 
 
-- [ ] Visto y aprobado
+- [x] Visto y aprobado
 
-### g-15 · Factual
+### g-15 · Factual — firmado: javi (2026-05-21)
 
 **Pregunta:** ¿Qué tipos de valores puede devolver una path operation function?
 
@@ -220,13 +220,13 @@
 - `tutorial/first-steps.md` → *First Steps > Recap, step by step > Step 5: return the content*
   > ### Step 5: return the content   ```Python hl_lines="8" {!../../../docs_src/first_steps/tutorial001.py!} ```   You can return a `dict`, `list`, singular values as `str`, `int`, etc.   You can also return Pydantic models (you'll see more about that later).   There are many other objects and models that will be automatically converted to JSON (including ORMs, etc). Try using your favorite ones, it's highly probable that they are already supported.
 
-- [ ] Visto y aprobado
+- [x] Visto y aprobado
 
 ---
 
 ## Paráfrasis
 
-### g-16 · Paráfrasis
+### g-16 · Paráfrasis — firmado: javi (2026-05-21)
 
 **Pregunta:** Mi función de endpoint hace una consulta a base de datos lenta pero no uso `await` en ningún sitio, la declaré con `def` normal. ¿Eso bloquea el servidor?
 
@@ -238,9 +238,9 @@
 - `async.md` → *Concurrency and async / await > Very Technical Details > Path operation functions*
   > ### Path operation functions   When you declare a *path operation function* with normal `def` instead of `async def`, it is run in an external threadpool that is then awaited, instead of being called directly (as it would block the server).   If you are coming from another async framework that does not work in the way described above and you are used to defining trivial compute-only *path operation functions* with plain `def` for a tiny performance gain (about 100 nanoseconds
 
-- [ ] Visto y aprobado
+- [x] Visto y aprobado
 
-### g-17 · Paráfrasis
+### g-17 · Paráfrasis — firmado: javi (2026-05-21)
 
 **Pregunta:** Tengo un modelo de usuario con la contraseña en texto plano y no quiero que se filtre cuando devuelvo el usuario por la API. ¿Cómo lo evito?
 
@@ -254,9 +254,9 @@
 - `tutorial/response-model.md` → *Response Model - Return Type > Recap*
   > ## Recap   Use the *path operation decorator's* parameter `response_model` to define response models and especially to ensure private data is filtered out.   Use `response_model_exclude_unset` to return only the values explicitly set.
 
-- [ ] Visto y aprobado
+- [x] Visto y aprobado
 
-### g-18 · Paráfrasis
+### g-18 · Paráfrasis — firmado: javi (2026-05-21)
 
 **Pregunta:** Mi web en el navegador (puerto 8080) llama a mi API en otro puerto y el navegador bloquea las peticiones. ¿Qué tengo que configurar en FastAPI?
 
@@ -268,9 +268,9 @@
 - `tutorial/cors.md` → *CORS (Cross-Origin Resource Sharing) > Use `CORSMiddleware`*
   > ## Use `CORSMiddleware`   You can configure it in your **FastAPI** application using the `CORSMiddleware`.   * Import `CORSMiddleware`. * Create a list of allowed origins (as strings). * Add it as a "middleware" to your **FastAPI** application.   You can also specify whether your backend allows:   * Credentials (Authorization headers, Cookies, etc). * Specific HTTP methods (`POST`, `PUT`) or all of them with the wildcard `"*"`. * Specific HTTP headers or all of them with the 
 
-- [ ] Visto y aprobado
+- [x] Visto y aprobado
 
-### g-19 · Paráfrasis
+### g-19 · Paráfrasis — firmado: javi (2026-05-21)
 
 **Pregunta:** ¿Tengo que instalar algo aparte para que aparezca el comando `fastapi` en mi terminal?
 
@@ -282,9 +282,9 @@
 - `fastapi-cli.md` → *FastAPI CLI*
   > # FastAPI CLI   **FastAPI CLI** is a command line program that you can use to serve your FastAPI app, manage your FastAPI project, and more.   When you install FastAPI (e.g. with `pip install "fastapi[standard]"`), it includes a package called `fastapi-cli`, this package provides the `fastapi` command in the terminal.   To run your FastAPI app for development, you can use the `fastapi dev` command:   <div class="termy">   ```console $ <font color="#4E9A06">fastapi</font> dev 
 
-- [ ] Visto y aprobado
+- [x] Visto y aprobado
 
-### g-20 · Paráfrasis
+### g-20 · Paráfrasis — firmado: javi (2026-05-21)
 
 **Pregunta:** Quiero que un parámetro de la URL solo acepte un conjunto cerrado de valores válidos. ¿Cómo se hace?
 
@@ -296,9 +296,9 @@
 - `tutorial/path-params.md` → *Path Parameters > Predefined values*
   > ## Predefined values   If you have a *path operation* that receives a *path parameter*, but you want the possible valid *path parameter* values to be predefined, you can use a standard Python <abbr title="Enumeration">`Enum`</abbr>.
 
-- [ ] Visto y aprobado
+- [x] Visto y aprobado
 
-### g-21 · Paráfrasis
+### g-21 · Paráfrasis — firmado: javi (2026-05-21)
 
 **Pregunta:** Trabajo en varios proyectos de Python a la vez y se me mezclan las librerías instaladas. ¿Qué recomienda la documentación?
 
@@ -310,9 +310,9 @@
 - `virtual-environments.md` → *Virtual Environments > What are Virtual Environments*
   > ## What are Virtual Environments   The solution to the problems of having all the packages in the global environment is to use a **virtual environment for each project** you work on.   A virtual environment is a **directory**, very similar to the global one, where you can install the packages for a project.   This way, each project will have its own virtual environment (`.venv` directory) with its own packages.   ```mermaid flowchart TB subgraph stone-project[philosophers-sto
 
-- [ ] Visto y aprobado
+- [x] Visto y aprobado
 
-### g-22 · Paráfrasis
+### g-22 · Paráfrasis — firmado: javi (2026-05-21)
 
 **Pregunta:** Leo un número desde una variable de entorno pero en Python me llega como cadena de texto. ¿Es lo esperado?
 
@@ -324,9 +324,9 @@
 - `environment-variables.md` → *Environment Variables > Types and Validation*
   > ## Types and Validation   These environment variables can only handle **text strings**, as they are external to Python and have to be compatible with other programs and the rest of the system (and even with different operating systems, as Linux, Windows, macOS).   That means that **any value** read in Python from an environment variable **will be a `str`**, and any conversion to a different type or any validation has to be done in code.   You will learn more about using envir
 
-- [ ] Visto y aprobado
+- [x] Visto y aprobado
 
-### g-23 · Paráfrasis
+### g-23 · Paráfrasis — firmado: javi (2026-05-21)
 
 **Pregunta:** ¿Cómo describo la estructura de los datos que mi API espera recibir en el cuerpo de la petición?
 
@@ -338,13 +338,13 @@
 - `tutorial/body.md` → *Request Body > Import Pydantic's `BaseModel`*
   > ## Import Pydantic's `BaseModel`   First, you need to import `BaseModel` from `pydantic`:   //// tab | Python 3.10+   ```Python hl_lines="2" {!> ../../../docs_src/body/tutorial001_py310.py!} ```   ////   //// tab | Python 3.8+   ```Python hl_lines="4" {!> ../../../docs_src/body/tutorial001.py!} ```   ////
 
-- [ ] Visto y aprobado
+- [x] Visto y aprobado
 
 ---
 
 ## Multi-fuente
 
-### g-24 · Multi-fuente
+### g-24 · Multi-fuente — firmado: javi (2026-05-21)
 
 **Pregunta:** ¿Qué relación tienen FastAPI con Starlette y con Pydantic?
 
@@ -358,9 +358,9 @@
 - `tutorial/path-params.md` → *Path Parameters > Pydantic*
   > ## Pydantic   All the data validation is performed under the hood by <a href="https://docs.pydantic.dev/" class="external-link" target="_blank">Pydantic</a>, so you get all the benefits from it. And you know you are in good hands.   You can use the same type declarations with `str`, `float`, `bool` and many other complex data types.   Several of these are explored in the next chapters of the tutorial.
 
-- [ ] Visto y aprobado
+- [x] Visto y aprobado
 
-### g-25 · Multi-fuente
+### g-25 · Multi-fuente — firmado: javi (2026-05-21)
 
 **Pregunta:** Quiero servir una web estática y además permitir que su JavaScript llame a mi API desde otro origen. ¿Qué dos piezas de FastAPI necesito?
 
@@ -374,9 +374,9 @@
 - `tutorial/cors.md` → *CORS (Cross-Origin Resource Sharing) > Use `CORSMiddleware`*
   > ## Use `CORSMiddleware`   You can configure it in your **FastAPI** application using the `CORSMiddleware`.   * Import `CORSMiddleware`. * Create a list of allowed origins (as strings). * Add it as a "middleware" to your **FastAPI** application.   You can also specify whether your backend allows:   * Credentials (Authorization headers, Cookies, etc). * Specific HTTP methods (`POST`, `PUT`) or all of them with the wildcard `"*"`. * Specific HTTP headers or all of them with the 
 
-- [ ] Visto y aprobado
+- [x] Visto y aprobado
 
-### g-26 · Multi-fuente
+### g-26 · Multi-fuente — firmado: javi (2026-05-21)
 
 **Pregunta:** ¿Cómo paso de las anotaciones de tipo de Python a obtener validación automática del cuerpo de la petición?
 
@@ -390,9 +390,9 @@
 - `tutorial/body.md` → *Request Body > Import Pydantic's `BaseModel`*
   > ## Import Pydantic's `BaseModel`   First, you need to import `BaseModel` from `pydantic`:   //// tab | Python 3.10+   ```Python hl_lines="2" {!> ../../../docs_src/body/tutorial001_py310.py!} ```   ////   //// tab | Python 3.8+   ```Python hl_lines="4" {!> ../../../docs_src/body/tutorial001.py!} ```   ////
 
-- [ ] Visto y aprobado
+- [x] Visto y aprobado
 
-### g-27 · Multi-fuente
+### g-27 · Multi-fuente — firmado: javi (2026-05-21)
 
 **Pregunta:** ¿Qué comando uso para desarrollar en local y cuál para producción, y en qué se diferencian?
 
@@ -406,9 +406,9 @@
 - `fastapi-cli.md` → *FastAPI CLI > `fastapi run`*
   > ## `fastapi run`   Executing `fastapi run` starts FastAPI in production mode by default.   By default, **auto-reload** is disabled. It also listens on the IP address `0.0.0.0`, which means all the available IP addresses, this way it will be publicly accessible to anyone that can communicate with the machine. This is how you would normally run it in production, for example, in a container.   In most cases you would (and should) have a "termination proxy" handling HTTPS for you
 
-- [ ] Visto y aprobado
+- [x] Visto y aprobado
 
-### g-28 · Multi-fuente
+### g-28 · Multi-fuente — firmado: javi (2026-05-21)
 
 **Pregunta:** ¿Cuál es la diferencia entre un parámetro de ruta y un parámetro de consulta?
 
@@ -422,9 +422,9 @@
 - `tutorial/query-params.md` → *Query Parameters*
   > # Query Parameters   When you declare other function parameters that are not part of the path parameters, they are automatically interpreted as "query" parameters.   ```Python hl_lines="9" {!../../../docs_src/query_params/tutorial001.py!} ```   The query is the set of key-value pairs that go after the `?` in a URL, separated by `&` characters.   For example, in the URL:   ``` http://127.0.0.1:8000/items/?skip=0&limit=10 ```   ...the query parameters are:   * `skip`: with a va
 
-- [ ] Visto y aprobado
+- [x] Visto y aprobado
 
-### g-29 · Multi-fuente
+### g-29 · Multi-fuente — firmado: javi (2026-05-21)
 
 **Pregunta:** Mi aplicación crece. ¿Cómo la divido en varios ficheros y cómo escribo tests para ella?
 
@@ -438,9 +438,9 @@
 - `tutorial/testing.md` → *Testing > Using `TestClient`*
   > ## Using `TestClient`   /// info   To use `TestClient`, first install <a href="https://www.python-httpx.org" class="external-link" target="_blank">`httpx`</a>.   Make sure you create a [virtual environment](../virtual-environments.md){.internal-link target=_blank}, activate it, and then install it, for example:   ```console $ pip install httpx ```   ///   Import `TestClient`.   Create a `TestClient` by passing your **FastAPI** application to it.   Create functions with a name
 
-- [ ] Visto y aprobado
+- [x] Visto y aprobado
 
-### g-30 · Multi-fuente
+### g-30 · Multi-fuente — firmado: javi (2026-05-21)
 
 **Pregunta:** ¿Cómo devuelvo un error HTTP al cliente y cómo le añado cabeceras personalizadas a ese error?
 
@@ -454,13 +454,13 @@
 - `tutorial/handling-errors.md` → *Handling Errors > Add custom headers*
   > ## Add custom headers   There are some situations in where it's useful to be able to add custom headers to the HTTP error. For example, for some types of security.   You probably won't need to use it directly in your code.   But in case you needed it for an advanced scenario, you can add custom headers:   ```Python hl_lines="14" {!../../../docs_src/handling_errors/tutorial002.py!} ```
 
-- [ ] Visto y aprobado
+- [x] Visto y aprobado
 
 ---
 
 ## No sé
 
-### g-31 · No sé
+### g-31 · No sé — firmado: javi (2026-05-21)
 
 **Pregunta:** ¿Cuánto cuesta el plan empresarial de FastAPI Cloud al mes?
 
@@ -470,9 +470,9 @@
 
 **Chunks gold:** _(ninguno — «no sé», se espera rechazo)_
 
-- [ ] Visto y aprobado
+- [x] Visto y aprobado
 
-### g-32 · No sé
+### g-32 · No sé — firmado: javi (2026-05-21)
 
 **Pregunta:** ¿Cómo configuro Django REST Framework para conectarlo con PostgreSQL?
 
@@ -482,9 +482,9 @@
 
 **Chunks gold:** _(ninguno — «no sé», se espera rechazo)_
 
-- [ ] Visto y aprobado
+- [x] Visto y aprobado
 
-### g-33 · No sé
+### g-33 · No sé — firmado: javi (2026-05-21)
 
 **Pregunta:** ¿Cuántas personas trabajan a tiempo completo en el equipo que mantiene FastAPI?
 
@@ -494,9 +494,9 @@
 
 **Chunks gold:** _(ninguno — «no sé», se espera rechazo)_
 
-- [ ] Visto y aprobado
+- [x] Visto y aprobado
 
-### g-34 · No sé
+### g-34 · No sé — firmado: javi (2026-05-21)
 
 **Pregunta:** ¿Cuál es la capital de Australia?
 
@@ -506,9 +506,9 @@
 
 **Chunks gold:** _(ninguno — «no sé», se espera rechazo)_
 
-- [ ] Visto y aprobado
+- [x] Visto y aprobado
 
-### g-35 · No sé
+### g-35 · No sé — firmado: javi (2026-05-21)
 
 **Pregunta:** ¿Me recomiendas usar FastAPI o Express en tu opinión personal para mi proyecto?
 
@@ -518,13 +518,13 @@
 
 **Chunks gold:** _(ninguno — «no sé», se espera rechazo)_
 
-- [ ] Visto y aprobado
+- [x] Visto y aprobado
 
 ---
 
 ## Multi-turno
 
-### g-36 · Multi-turno
+### g-36 · Multi-turno — firmado: javi (2026-05-21)
 
 **Turnos previos:**
 - 👤 ¿Qué son los parámetros de ruta en FastAPI?
@@ -540,9 +540,9 @@
 - `tutorial/path-params.md` → *Path Parameters > Path parameters with types*
   > ## Path parameters with types   You can declare the type of a path parameter in the function, using standard Python type annotations:   ```Python hl_lines="7" {!../../../docs_src/path_params/tutorial002.py!} ```   In this case, `item_id` is declared to be an `int`.   /// check   This will give you editor support inside of your function, with error checks, completion, etc.   ///
 
-- [ ] Visto y aprobado
+- [x] Visto y aprobado
 
-### g-37 · Multi-turno
+### g-37 · Multi-turno — firmado: javi (2026-05-21)
 
 **Turnos previos:**
 - 👤 ¿Qué son los parámetros de consulta (query parameters)?
@@ -558,9 +558,9 @@
 - `tutorial/query-params.md` → *Query Parameters > Optional parameters*
   > ## Optional parameters   The same way, you can declare optional query parameters, by setting their default to `None`:   //// tab | Python 3.10+   ```Python hl_lines="7" {!> ../../../docs_src/query_params/tutorial002_py310.py!} ```   ////   //// tab | Python 3.8+   ```Python hl_lines="9" {!> ../../../docs_src/query_params/tutorial002.py!} ```   ////   In this case, the function parameter `q` will be optional, and will be `None` by default.   /// check   Also notice that **Fast
 
-- [ ] Visto y aprobado
+- [x] Visto y aprobado
 
-### g-38 · Multi-turno
+### g-38 · Multi-turno — firmado: javi (2026-05-21)
 
 **Turnos previos:**
 - 👤 ¿Para qué sirven las tareas en segundo plano (background tasks)?
@@ -576,9 +576,9 @@
 - `tutorial/background-tasks.md` → *Background Tasks > Add the background task*
   > ## Add the background task   Inside of your *path operation function*, pass your task function to the *background tasks* object with the method `.add_task()`:   ```Python hl_lines="14" {!../../../docs_src/background_tasks/tutorial001.py!} ```   `.add_task()` receives as arguments:   * A task function to be run in the background (`write_notification`). * Any sequence of arguments that should be passed to the task function in order (`email`). * Any keyword arguments that should
 
-- [ ] Visto y aprobado
+- [x] Visto y aprobado
 
-### g-39 · Multi-turno
+### g-39 · Multi-turno — firmado: javi (2026-05-21)
 
 **Turnos previos:**
 - 👤 ¿Cómo devuelvo un error HTTP al cliente en FastAPI?
@@ -594,9 +594,9 @@
 - `tutorial/handling-errors.md` → *Handling Errors > Add custom headers*
   > ## Add custom headers   There are some situations in where it's useful to be able to add custom headers to the HTTP error. For example, for some types of security.   You probably won't need to use it directly in your code.   But in case you needed it for an advanced scenario, you can add custom headers:   ```Python hl_lines="14" {!../../../docs_src/handling_errors/tutorial002.py!} ```
 
-- [ ] Visto y aprobado
+- [x] Visto y aprobado
 
-### g-40 · Multi-turno
+### g-40 · Multi-turno — firmado: javi (2026-05-21)
 
 **Turnos previos:**
 - 👤 ¿Cómo creo un entorno virtual para mi proyecto?
@@ -612,4 +612,4 @@
 - `virtual-environments.md` → *Virtual Environments > Activate the Virtual Environment*
   > ## Activate the Virtual Environment   Activate the new virtual environment so that any Python command you run or package you install uses it.   /// tip   Do this **every time** you start a **new terminal session** to work on the project.   ///   //// tab | Linux, macOS   <div class="termy">   ```console $ source .venv/bin/activate ```   </div>   ////   //// tab | Windows PowerShell   <div class="termy">   ```console $ .venv\Scripts\Activate.ps1 ```   </div>   ////   //// tab 
 
-- [ ] Visto y aprobado
+- [x] Visto y aprobado

@@ -5,7 +5,7 @@
 ## Bloque actual
 
 **Bloque:** G (Dataset gold)
-**Estado:** en progreso 🚧 (borradores listos, pendiente revisión humana + firma)
+**Estado:** gate_pending ✓ (40 ejemplos firmados; validador + test en verde)
 **Fecha apertura:** 2026-05-21 (sesión 3)
 **Última actualización:** 2026-05-21
 
@@ -17,22 +17,26 @@ Dataset gold de 40 ejemplos en español sobre el corpus FastAPI docs (spec `08-d
 
 ## Próxima acción concreta
 
-Javi revisa `corpus/sample/fastapi-docs/evals/REVIEW.md` offline y vuelve con "firma todos" o ajustes por `id`. Al confirmar: rellenar `reviewed_by: javi` + `reviewed_at` en los 40 de `gold.jsonl`, re-pasar validador + test (quedan en verde), y entonces cerrar (gate_pending) con CHANGELOG + PR + skill review.
+Cerrar el bloque: PR de `feat/dataset-gold` + skill `review`. Gate listo (criterios de la spec 08 cumplidos).
 
 ## Pendientes en este bloque
 
-- [ ] Revisión humana de los 40 ejemplos (Javi).
-- [ ] Firma de los 40 (`reviewed_by`/`reviewed_at`) tras el visto bueno.
-- [ ] El bloque NO está hecho hasta que estén firmados; por eso NO está en gate_pending.
+- Ninguno funcional. Solo cierre administrativo (PR + review).
 
 ## Completado en esta sesión (Bloque G)
 
 - [x] `corpus/sample/fastapi-docs/evals/` + `README.md` con el schema documentado.
-- [x] `gold.jsonl` — 40 borradores SIN firmar; distribución exacta (15 factual / 8 paráfrasis / 7 multi-fuente / 5 no sé / 5 multi-turno).
-- [x] `scripts/validate_gold.py` — valida JSONL, schema, distribución, firma y existencia de cada `gold_chunk` en pgvector con el SHA actual.
-- [x] `backend/tests/test_validate_gold.py` — 16 tests (15 verdes; el rojo es `test_real_gold_schema_and_distribution`, esperado hasta que se firme).
-- [x] Verificado: los 31 pares `gold_chunks` existen en pgvector (SHA `40e33e4`). Validador solo reporta errores de firma (80 = 40×2).
-- [x] `REVIEW.md` — documento de revisión humana con Q/A + notas + contenido real del chunk gold al lado.
+- [x] `gold.jsonl` — 40 ejemplos **firmados** (`reviewed_by: javi`, `reviewed_at: 2026-05-21`); distribución exacta (15 factual / 8 paráfrasis / 7 multi-fuente / 5 no sé / 5 multi-turno).
+- [x] `scripts/validate_gold.py` — valida JSONL, schema, distribución, firma y existencia de cada `gold_chunk` en pgvector con el SHA actual. **Pasa en verde.**
+- [x] `backend/tests/test_validate_gold.py` — 16 tests, **16/16 verdes**.
+- [x] Verificado: los 32 pares `gold_chunks` existen en pgvector (SHA `40e33e4`).
+- [x] Ajuste en revisión: g-02 ahora con dos chunks (añadido «Data validation») para fundamentar el error HTTP 422.
+- [x] `REVIEW.md` — traza de la revisión humana firmada.
+
+## Deuda técnica (Bloque G)
+
+- Cobertura concentrada: 40 ejemplos sobre ~15 de 144 ficheros, sesgados al tutorial básico. Ampliar a `advanced/`, `how-to/`, seguridad, dependencias, SQL en iteración futura.
+- Multi-fuente g-27 y g-30 son multi-sección del mismo fichero (válido por spec 08), no documentos distintos.
 
 ## Completado en esta sesión
 
