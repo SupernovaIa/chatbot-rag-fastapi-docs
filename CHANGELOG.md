@@ -10,6 +10,42 @@ Próximas entradas por bloque.
 
 ---
 
+## [Bloque CH] — 2026-05-21
+
+### Añadido
+- `backend/migrations/versions/0002_create_chat_tables.py` — tablas `chat_sessions` (id UUID PK, user_id UUID nullable hasta bloque AU, timestamps) y `chat_messages` (turn_idx, role `user|assistant`, content, citations JSONB). Índice de soporte `(session_id, turn_idx)` + constraint UNIQUE `(session_id, turn_idx, role)` (specs 05/06).
+- `prompts/system.md` — system prompt versionado con front-matter YAML. ~1 200 tokens (>mínimo Flash ~1 024 para caching implícito). Contiene: rol y alcance, principios, formato de respuesta, formato de citas con ejemplo completo, comportamiento multi-turn, «no sé» cases, tono (spec 07).
+- `backend/app/chat/models.py` — dataclasses de dominio: `ChatSession`, `ChatMessage`, `ChatTurn`, `Citation`, `UsageMeta` (con `from_response_metadata` que extrae `cached_content_token_count`), `StreamEvent`.
+- `backend/app/chat/store.py` — `ChatHistoryStore`: CRUD de sesiones y mensajes, `load_history` con sliding window N=5 (ADR-005), `save_turn` transaccional con ON CONFLICT DO NOTHING, `next_turn_idx` (spec 06).
+- `backend/app/chat/prompts.py` — `build_prompt` (SystemMessage estable + HumanMessage dinámico), `build_context_block`, `build_history_block`, `citations_from_candidates`, `system_prompt_hash` para tracing (spec 07).
+- `backend/app/chat/generator.py` — `StreamingSession` (contenedor mutable de estado post-stream); `stream_chat` async generator que emite eventos `token`/`error`, captura `UsageMeta` del último chunk de LangChain (spec 05). Cancelación limpia vía `asyncio.Event` (spec 05: evitar malgasto de free tier).
+- `backend/app/chat/router.py` — `POST /chat/`: pipeline completo (load history → `asyncio.to_thread(retrieve)` → `build_prompt` → `stream_chat` → persist); disconnect watcher con `asyncio.create_task`; `logger.debug` de usage/session post-stream (TODO: span OTel manual en bloque F). `GET /chat/sessions`, `GET /chat/sessions/{id}` (sin auth hasta bloque AU) (specs 05/06).
+- `backend/tests/chat/` — 46 tests nuevos: `test_store.py` (8), `test_prompts.py` (11), `test_generator.py` (9), `test_router.py` (12 chat + 3 GET); fakes en memoria, LLM mockeado con `patch`. 135 tests totales, todos verdes.
+
+### Cambiado
+- `backend/app/config.py` — añadidos `generate_timeout_s = 60.0` y `history_window_n = 5`.
+- `backend/app/main.py` — incluye `chat_router` (prefijo `/chat`).
+- `backend/pyproject.toml` + `uv.lock` — dep `sse-starlette>=2.1` (instalada 3.4.4).
+- `backend/app/chat/__init__.py` — docstring de módulo.
+- `docker-compose.yml` — bind mount `./prompts:/prompts:ro` en el servicio backend (los prompts están en la raíz del repo, fuera del build context `./backend`; el path resuelto en el contenedor es `/prompts/`).
+- `specs/06-history-management.md` — corrección: constraint UNIQUE `(session_id, turn_idx, role)`, no `(session_id, turn_idx)`. Explicación añadida.
+
+### Decisiones documentadas
+- **UNIQUE (session_id, turn_idx, role)** en lugar de `(session_id, turn_idx)`: la spec describía la segunda, pero user y assistant comparten `turn_idx` → constraint incorrecto en producción. Documentado en la migración y corregido en la spec.
+- **Sin `CachedContent` explícito** (spec 07): umbral de Gemini es 32 768 tokens mínimos; el system prompt de este proyecto (~1 107 tokens reales según API) queda muy por debajo. Caching implícito automático, sin gestión de `cache_id`/TTL.
+- **`build_prompt` de dos mensajes**: SystemMessage (prefijo estable, igual entre todas las queries) + HumanMessage (contenido dinámico). Historial embebido en el HumanMessage para no romper la estabilidad del primer mensaje.
+- **`asyncio.to_thread`** para retrieval síncrono y DB síncrona desde un router async; evita bloquear el event loop en llamadas de red al embedding y a Postgres.
+- **`ChatGoogleGenerativeAI` importado a nivel de módulo** en `generator.py` (no dentro de la función) para que `patch("app.chat.generator.ChatGoogleGenerativeAI")` funcione en los tests.
+
+### Notas
+- **Verificación live (2026-05-21):** stream de 2 turnos verificado con `curl -N` contra stack Docker real. Turno 1 y turno 2 con mismo `session_id` → tokens + evento `citations` en ambos. 19 spans en Phoenix (2× retrieval pipeline completo + 2× LLM ChatGoogleGenerativeAI).
+- **Hallazgo caching implícito:** `gemini-3.5-flash` (3.5-flash-05-2026) devuelve `cached_content_token_count=None` incluso con prefijo de 1107 tokens reales (por encima del mínimo documentado de ~1024 para Flash). Verificado con SDK directo (`google-genai`) en 4 llamadas consecutivas y con prefijos de hasta 1302 tokens. LangChain `astream()` tampoco expone `usage_metadata` en el `response_metadata` de los chunks de streaming. Conclusión: el caching implícito no se activa con este modelo y este tamaño de prefijo. La estructura de la implementación (prefijo estable primero) es correcta; el criterio `cached_token_count > 0` queda sin satisfacer y se documenta como hallazgo, no como defecto.
+- **Bug OTel span generador** (diferido a bloque F): `set_span_attributes` dentro de `event_generator()` es no-op porque el route handler retorna la `EventSourceResponse` antes de que el generador complete; no hay span activo. Solución: `tracer.start_span()` manual pasado al generador. Actualmente los datos de usage se loguean con `logger.debug`.
+- Auth (`POST /chat` debería requerir JWT cookie) diferida a bloque AU.
+- `curl -N http://localhost:8000/chat/ -d '{"query":"..."}' -H 'Content-Type: application/json'` funciona contra el stack Docker.
+
+---
+
 ## [Bloque R] — 2026-05-21
 
 ### Añadido
