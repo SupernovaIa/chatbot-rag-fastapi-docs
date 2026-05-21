@@ -17,7 +17,7 @@ Execute these steps:
    - `Completado en esta sesión`: what got done.
    - `Blockers`: explicit, or "Ninguno".
    - `Decisiones tomadas`: with ADR/spec reference if any.
-   - `Gate de revisión`: criterion from PLAN.md and result `pendiente`.
+   - `Gate de revisión`: criterion from the block spec acceptance criteria (`specs/`) and result `pendiente`.
 3. Add a `CHANGELOG.md` entry under `## [Bloque X] — YYYY-MM-DD` with `Añadido` / `Cambiado` / `Eliminado` / `Decisiones documentadas` / `Notas`, based on the real diff of this session.
 4. Show the user a summary of both updates for review before committing.
 5. Propose the closing commit (will ask for confirmation, since git is not auto-allowed):
@@ -26,4 +26,4 @@ Execute these steps:
    - `git push` of the block branch.
 6. Remind the user that the human gate review comes next: if it passes, open the PR / merge to `main`; if not, document what failed and stay in the block.
 
-Do not mark the block as `completed` here. `completed` is set only after the human gate passes (see runbook). This command leaves the block at `gate_pending`.
+Do not mark the block as `completed` here. `completed` is set only after the human gate passes (a human step, not this command). This command leaves the block at `gate_pending`.
