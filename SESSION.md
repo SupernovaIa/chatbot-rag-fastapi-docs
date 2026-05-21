@@ -4,51 +4,60 @@
 
 ## Bloque actual
 
-**Bloque:** <A | B | G | R | CH | AU | D | E | F | S | Z>
-**Estado:** <not_started | in_progress | gate_pending | completed | blocked>
-**Fecha apertura:** <YYYY-MM-DD HH:MM>
-**Última actualización:** <YYYY-MM-DD HH:MM>
+**Bloque:** A
+**Estado:** gate_pending
+**Fecha apertura:** 2026-05-21 13:30
+**Última actualización:** 2026-05-21 14:05
 
 ## Objetivo del bloque
 
-<1-2 frases describiendo qué se está construyendo en este bloque>
+Levantar la base ejecutable del repo: estructura backend/frontend/infra, stack
+Docker con 5 servicios sanos, Alembic inicializado y guardarraíl de commits
+(husky + commitlint).
 
 ## Próxima acción concreta
 
-<Una frase con la siguiente cosa que hay que hacer al retomar>
+Revisar y arrancar Bloque B.
 
 ## Pendientes en este bloque
 
-- [ ] <tarea pendiente 1>
-- [ ] <tarea pendiente 2>
-- [ ] <tarea pendiente 3>
+- [ ] Revisión del PR y merge a `main`.
 
 ## Completado en esta sesión
 
-- [x] <cosa hecha 1>
-- [x] <cosa hecha 2>
+- [x] `backend/`: FastAPI con `/health`, tests, `pyproject.toml` (uv), Dockerfile, Alembic inicializado (sin revisiones aún).
+- [x] `frontend/`: Vite + React + TS con `Dockerfile.dev`.
+- [x] `infra/postgres/init.sql` con `CREATE EXTENSION vector`.
+- [x] `docker-compose.yml` (raíz) con 5 servicios, healthchecks y volúmenes.
+- [x] `.env.example`, `README.md` con quickstart, CI base en `.github/workflows/ci.yml`.
+- [x] husky + commitlint con hook `commit-msg`.
+- [x] Directorios `corpus/ prompts/ scripts/ security/`.
 
 ## Blockers
 
-- <Blocker explícito si lo hay, con qué hace falta para desbloquear. Si no hay blockers, escribir "Ninguno".>
+- Ninguno.
 
 ## Decisiones tomadas en esta sesión
 
-- <Decisión 1, con referencia al ADR si aplica>
-- <Decisión 2>
+- `docker-compose.yml` se ubica en la **raíz** (no en `infra/`) para que el criterio de aceptación `docker compose up -d` funcione sin `-f` y casar con el quickstart de `CLAUDE.md`. `infra/` queda para la config de soporte (`postgres/init.sql`).
+- Healthcheck de Phoenix en exec form (imagen distroless sin `/bin/sh`, usa el `python` embebido). Healthcheck de frontend contra `127.0.0.1` (evita que `localhost` resuelva a IPv6 mientras Vite escucha en IPv4).
+- Las tablas van por revisiones de Alembic en bloques B/CH/AU; `init.sql` solo garantiza la extensión `vector`.
 
 ## Notas de handoff
 
-<Contexto que el próximo agente o tú al retomar necesitáis para no perder hilo. Cualquier rareza, atajo aplicado, hipótesis a validar, etc.>
+- Para validar el stack se paró el contenedor `ai-learning-engine-postgres-1` (ocupaba el `5432`). Rearráncalo con `docker start ai-learning-engine-postgres-1` si lo necesitas (no puede coexistir con el postgres de este stack en el mismo puerto).
+- El stack quedó levantado y sano. Pararlo con `docker compose down`.
 
 ## Comandos útiles ahora
 
 ```bash
-# <comando que dejé corriendo o que hay que correr al volver>
+docker compose up -d
+docker compose ps
+curl http://localhost:8000/health
 ```
 
 ## Gate de revisión
 
-- **Criterio:** <criterio del bloque del PLAN.md>
-- **Resultado:** <pendiente | pasa | falla>
-- **Comentarios:** <si falla, qué falta>
+- **Criterio:** `docker compose up -d` levanta los 5 servicios sanos respondiendo en sus puertos (postgres, pgvector, azurite :10000, phoenix :6006, backend /health :8000, frontend :5173); commitlint rechaza un mensaje malformado.
+- **Resultado:** pasa
+- **Comentarios:** 5/5 healthy verificados; `vector` 0.8.2 instalado; commitlint rechaza mensaje sin tipo y acepta Conventional Commits.
