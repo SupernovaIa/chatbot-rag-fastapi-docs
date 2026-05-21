@@ -75,6 +75,12 @@ Restricción transversal: **cero tarjeta**. Todo el stack se ejecuta en local co
 - Antes de implementar una feature no trivial: spec en `specs/`. Estructura: goal, user story, approach, acceptance criteria, dependencies, risks.
 - Antes de tomar una decisión arquitectónica: ADR en `docs/adr/`. Formato MADR (Markdown Architecture Decision Record).
 
+### Arquitectura de código (ADR-011)
+
+- **Package-by-feature**: `backend/app/<feature>/` (indexing, retrieval, chat, auth, evals, security, observability). Cada feature agrupa router, lógica y modelos.
+- **Puertos finos para dependencias externas** (Gemini, pgvector, Azurite): interfaz (`Protocol`/ABC) + adaptador, para mockear en tests y poder cambiar de proveedor sin tocar la lógica.
+- Sin capas domain/application/infrastructure ni DTOs/mappers (no es hexagonal puro). Wiring con `Depends` de FastAPI.
+
 ### Testing
 
 - Backend: Pytest. Mockeo de llamadas a Gemini en tests unitarios. Tests de integración con Postgres y Azurite reales en CI.
