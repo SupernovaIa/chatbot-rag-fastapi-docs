@@ -54,6 +54,14 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
 
+    if not args.connection_string:
+        logger.error(
+            "AZURE_STORAGE_CONNECTION_STRING is not set. "
+            "Copy .env.example to .env and fill in the Azurite connection string. "
+            "See docs/azurite-setup.md for the well-known development key."
+        )
+        return 1
+
     try:
         from azure.storage.blob import BlobServiceClient
     except ImportError:

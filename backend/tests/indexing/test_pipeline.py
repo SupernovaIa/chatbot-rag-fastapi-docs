@@ -6,8 +6,6 @@ in-memory fakes so no network or DB connection is required.
 
 from __future__ import annotations
 
-from typing import Iterator
-
 import pytest
 
 from app.indexing.models import BlobItem, Chunk
@@ -62,6 +60,9 @@ class FakeChunkStore:
 
     def count(self) -> int:
         return len(self._chunks)
+
+    def count_by_sha(self, corpus_sha: str) -> int:
+        return sum(1 for c in self._chunks if c.corpus_sha == corpus_sha)
 
 
 # ---------------------------------------------------------------------------

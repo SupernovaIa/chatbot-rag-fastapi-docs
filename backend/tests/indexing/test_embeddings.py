@@ -12,7 +12,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.indexing.embeddings import GeminiEmbeddingsAdapter, _l2_normalize
+from google.genai import errors as genai_errors
+
+from app.indexing.embeddings import (
+    GeminiEmbeddingsAdapter,
+    _is_retryable,
+    _l2_normalize,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -28,6 +34,48 @@ def _make_embed_response(texts: list[str], dim: int = 1536):
     """Fake response from client.models.embed_content (google-genai SDK)."""
     embeddings = [SimpleNamespace(values=_make_fake_vector(dim)) for _ in texts]
     return SimpleNamespace(embeddings=embeddings)
+
+
+# ---------------------------------------------------------------------------
+# _is_retryable
+# ---------------------------------------------------------------------------
+
+class TestIsRetryable:
+    def _api_error(self, code: int) -> genai_errors.APIError:
+        return genai_errors.APIError(code, {"error": {"message": f"HTTP {code}"}})
+
+    def test_429_is_retryable(self) -> None:
+        assert _is_retryable(self._api_error(429)) is True
+
+    def test_500_is_retryable(self) -> None:
+        assert _is_retryable(self._api_error(500)) is True
+
+    def test_503_is_retryable(self) -> None:
+        assert _is_retryable(self._api_error(503)) is True
+
+    def test_408_is_retryable(self) -> None:
+        assert _is_retryable(self._api_error(408)) is True
+
+    def test_400_not_retryable(self) -> None:
+        assert _is_retryable(self._api_error(400)) is False
+
+    def test_404_not_retryable(self) -> None:
+        assert _is_retryable(self._api_error(404)) is False
+
+    def test_connection_error_is_retryable(self) -> None:
+        assert _is_retryable(ConnectionError("reset")) is True
+
+    def test_timeout_error_is_retryable(self) -> None:
+        assert _is_retryable(TimeoutError("timed out")) is True
+
+    def test_type_error_not_retryable(self) -> None:
+        assert _is_retryable(TypeError("bad type")) is False
+
+    def test_value_error_not_retryable(self) -> None:
+        assert _is_retryable(ValueError("bad value")) is False
+
+    def test_runtime_error_not_retryable(self) -> None:
+        assert _is_retryable(RuntimeError("unexpected")) is False
 
 
 # ---------------------------------------------------------------------------
@@ -138,8 +186,8 @@ class TestGeminiEmbeddingsAdapterEmbedBatch:
         assert config is not None
         assert config.output_dimensionality == 1536
 
-    def test_retry_on_exception(self) -> None:
-        """API error on first call should be retried."""
+    def test_retry_on_transient_connection_error(self) -> None:
+        """Transient network error triggers retry and eventually succeeds."""
         adapter = self._make_adapter(batch_size=1)
         call_count = 0
 
@@ -147,10 +195,58 @@ class TestGeminiEmbeddingsAdapterEmbedBatch:
             nonlocal call_count
             call_count += 1
             if call_count < 2:
-                raise RuntimeError("quota exceeded")
+                raise ConnectionError("connection reset by peer")
             return _make_embed_response(kw["contents"])
 
         self._setup_mock(adapter, side_effect=flaky_embed)
         result = adapter.embed_batch(["retry-me"])
         assert call_count == 2
         assert len(result) == 1
+
+    def test_retry_on_api_error_429(self) -> None:
+        """APIError with code 429 (quota) triggers retry."""
+        adapter = self._make_adapter(batch_size=1)
+        call_count = 0
+
+        def quota_embed(**kw):
+            nonlocal call_count
+            call_count += 1
+            if call_count < 2:
+                raise genai_errors.APIError(429, {"error": {"message": "quota exceeded"}})
+            return _make_embed_response(kw["contents"])
+
+        self._setup_mock(adapter, side_effect=quota_embed)
+        result = adapter.embed_batch(["retry-429"])
+        assert call_count == 2
+        assert len(result) == 1
+
+    def test_non_retryable_error_not_retried(self) -> None:
+        """Programming errors (TypeError) must NOT trigger retry — surfaced immediately."""
+        adapter = self._make_adapter(batch_size=1)
+        call_count = 0
+
+        def buggy_embed(**kw):
+            nonlocal call_count
+            call_count += 1
+            raise TypeError("unexpected type in embedding call")
+
+        self._setup_mock(adapter, side_effect=buggy_embed)
+        with pytest.raises(TypeError):
+            adapter.embed_batch(["test"])
+        assert call_count == 1  # no retry, fails on first attempt
+
+    def test_non_retryable_api_error_400_not_retried(self) -> None:
+        """APIError 400 (bad request / invalid input) must NOT trigger retry."""
+        adapter = self._make_adapter(batch_size=1)
+        call_count = 0
+
+        def bad_request_embed(**kw):
+            nonlocal call_count
+            call_count += 1
+            raise genai_errors.APIError(400, {"error": {"message": "invalid request"}})
+
+        self._setup_mock(adapter, side_effect=bad_request_embed)
+        with pytest.raises(genai_errors.APIError) as exc_info:
+            adapter.embed_batch(["test"])
+        assert exc_info.value.code == 400
+        assert call_count == 1  # no retry

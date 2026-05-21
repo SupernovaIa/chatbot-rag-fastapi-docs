@@ -2,16 +2,24 @@
 
 ## Connection string de desarrollo
 
-Azurite expone una cuenta de almacenamiento de desarrollo fija con credenciales públicas documentadas por Microsoft. **No son secretos de producción.**
+Azurite expone una cuenta de almacenamiento de desarrollo fija. **No son secretos de producción.**
 
-Para `AZURE_STORAGE_CONNECTION_STRING` en el `.env` local:
+> ⚠️ La `AccountKey` varía según la versión de la imagen Azurite. Comprueba siempre
+> el valor real con:
+> ```bash
+> docker compose exec azurite grep -r "EMULATOR_ACCOUNT_KEY_STR" /opt/azurite/dist/src/blob/utils/constants.js
+> ```
+
+La clave para la imagen `mcr.microsoft.com/azure-storage/azurite:latest` (verificada 2026-05-21):
 
 ```
-DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=<ver abajo>;BlobEndpoint=http://azurite:10000/devstoreaccount1;
+DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;
 ```
 
-La `AccountKey` del emulador es la clave de desarrollo bien conocida de Azurite.
-Encuéntrala en la documentación oficial de Microsoft:
+> Nota: la documentación antigua de Microsoft muestra `...KgdSF74YxZDQ==` (clave histórica);
+> versiones recientes de Azurite usan `...KBHBeksoGMGw==`.
+
+Referencia oficial (puede estar desactualizada):
 https://learn.microsoft.com/azure/storage/common/storage-use-azurite#well-known-storage-account-and-key
 
 Para scripts corriendo **fuera** del Docker (ej. `python scripts/upload_corpus.py` desde el host):

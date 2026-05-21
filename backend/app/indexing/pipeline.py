@@ -67,7 +67,7 @@ def run_indexing(
             "blobs_processed": len(blobs),
             "chunks_split": 0,
             "chunks_inserted": 0,
-            "total_in_store": store.count(),
+            "total_in_store": store.count_by_sha(corpus_sha),
         }
 
     texts = [c["content"] for c in all_chunk_dicts]
@@ -90,7 +90,7 @@ def run_indexing(
     else:
         logger.info("dry_run=True, skipping store step")
 
-    total = store.count()
+    total = store.count_by_sha(corpus_sha)
     result = {
         "blobs_processed": len(blobs),
         "chunks_split": len(chunks),

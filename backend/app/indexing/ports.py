@@ -6,7 +6,7 @@ without touching the real adapters (ADR-011).
 
 from __future__ import annotations
 
-from typing import Iterator, Protocol
+from typing import Protocol
 
 from app.indexing.models import BlobItem, Chunk
 
@@ -40,4 +40,8 @@ class ChunkStorePort(Protocol):
 
     def count(self) -> int:
         """Return the total number of chunks stored."""
+        ...
+
+    def count_by_sha(self, corpus_sha: str) -> int:
+        """Return the number of chunks for a specific corpus SHA."""
         ...

@@ -82,9 +82,15 @@ def main() -> int:
         return 1
 
     database_url = os.environ.get("DATABASE_URL", _DATABASE_URL_DEFAULT)
-    connection_string = os.environ.get(
-        "AZURE_STORAGE_CONNECTION_STRING", _AZURITE_DEV_CONN
-    )
+    connection_string = os.environ.get("AZURE_STORAGE_CONNECTION_STRING", "")
+
+    if not connection_string:
+        logger.error(
+            "AZURE_STORAGE_CONNECTION_STRING is not set. "
+            "Copy .env.example to .env and fill in the Azurite connection string. "
+            "See docs/azurite-setup.md for the well-known development key."
+        )
+        return 1
 
     try:
         from sqlalchemy import create_engine

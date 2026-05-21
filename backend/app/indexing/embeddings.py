@@ -21,11 +21,12 @@ import math
 from typing import Generator
 
 from google import genai
+from google.genai import errors as genai_errors
 from google.genai import types as genai_types
 from tenacity import (
     before_sleep_log,
     retry,
-    retry_if_exception_type,
+    retry_if_exception,
     stop_after_attempt,
     wait_exponential,
 )
@@ -41,6 +42,24 @@ _DEFAULT_BATCH_SIZE = 50
 _MAX_RETRIES = 8
 _WAIT_MIN = 1
 _WAIT_MAX = 60
+
+
+# HTTP status codes that are safe to retry (transient server/quota errors).
+_RETRYABLE_HTTP_CODES = {408, 429, 500, 502, 503, 504}
+
+
+def _is_retryable(exc: BaseException) -> bool:
+    """Return True only for transient errors worth retrying.
+
+    - ``genai_errors.APIError`` with a retryable HTTP code (quota, server error).
+    - Network-level errors: ``ConnectionError``, ``TimeoutError``, ``OSError``.
+
+    Programming errors (``TypeError``, ``ValueError``, ``AttributeError``, …)
+    return False so they surface immediately without burning retry budget.
+    """
+    if isinstance(exc, genai_errors.APIError):
+        return exc.code in _RETRYABLE_HTTP_CODES
+    return isinstance(exc, (ConnectionError, TimeoutError, OSError))
 
 
 def _l2_normalize(vec: list[float]) -> list[float]:
@@ -103,7 +122,7 @@ class GeminiEmbeddingsAdapter:
         return all_embeddings
 
     @retry(
-        retry=retry_if_exception_type(Exception),
+        retry=retry_if_exception(_is_retryable),
         stop=stop_after_attempt(_MAX_RETRIES),
         wait=wait_exponential(multiplier=1, min=_WAIT_MIN, max=_WAIT_MAX),
         before_sleep=before_sleep_log(logger, logging.WARNING),
