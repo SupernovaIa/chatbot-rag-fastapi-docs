@@ -5,7 +5,7 @@
 ## Bloque actual
 
 **Bloque:** G (Dataset gold)
-**Estado:** gate_pending ✓ (40 ejemplos firmados; lint + tests + commitlint en verde)
+**Estado:** completado ✓ (tag: 03-block-G · PR #5 mergeado a main · gate humano superado)
 **Fecha apertura:** 2026-05-21 (sesión 3)
 **Última actualización:** 2026-05-21 (cierre de sesión 3)
 
@@ -51,7 +51,7 @@ Cerrar el bloque: PR de `feat/dataset-gold` + skill `review`. Gate listo (criter
 ## Gate de revisión (Bloque G)
 
 - **Criterio (acceptance spec 08):** `gold.jsonl` con 40 entradas válidas (parseables, schema cumplido); `scripts/validate_gold.py` pasa sin errores; cada ejemplo con `reviewed_by` y `reviewed_at`; distribución 15/8/7/5/5.
-- **Resultado:** pendiente (gate humano). Estado técnico: todos los criterios cumplidos — validador en verde, 40 firmados por Javi, distribución exacta, 32 pares `gold_chunks` presentes en pgvector con el SHA actual.
+- **Resultado:** superado ✓ (gate humano: PR #5 mergeado a main el 2026-05-21). Todos los criterios cumplidos — validador en verde, 40 firmados por Javi, distribución exacta, 32 pares `gold_chunks` presentes en pgvector con el SHA actual. Follow-ups menores en issue #6 (no bloqueantes).
 
 ## Completado en esta sesión
 
