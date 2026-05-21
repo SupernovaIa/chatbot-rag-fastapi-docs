@@ -12,12 +12,13 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 # Install dependencies first for better layer caching.
-COPY pyproject.toml ./
-RUN uv sync --no-install-project
+# --frozen: use the committed uv.lock as-is (reproducible builds, no resolution).
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-install-project
 
 # Application code.
 COPY . .
-RUN uv sync
+RUN uv sync --frozen
 
 ENV PATH="/app/.venv/bin:$PATH"
 
