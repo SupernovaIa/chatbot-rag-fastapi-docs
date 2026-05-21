@@ -70,6 +70,11 @@ Restricción transversal: **cero tarjeta**. Todo el stack se ejecuta en local co
 - Ramas: `feat/<slug>`, `fix/<slug>`, `chore/<slug>`, `docs/<slug>`. Una rama por bloque.
 - PRs descritos en español, mensaje de commit en inglés.
 
+### Dependencias
+
+- **Backend Python con `uv`.** `pyproject.toml` para declarar deps, `uv.lock` committeado para builds reproducibles. Dockerfile con `uv sync --frozen`.
+- **Frontend con npm.** `package-lock.json` committeado; CI usa `npm ci`.
+
 ### SDD ligero
 
 - Antes de implementar una feature no trivial: spec en `specs/`. Estructura: goal, user story, approach, acceptance criteria, dependencies, risks.
