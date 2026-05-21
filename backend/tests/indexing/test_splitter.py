@@ -5,7 +5,6 @@ No external dependencies; no mocking needed.
 
 from __future__ import annotations
 
-import pytest
 
 from app.indexing.splitter import split_markdown
 
