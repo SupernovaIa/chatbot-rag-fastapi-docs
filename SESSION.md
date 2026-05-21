@@ -5,7 +5,7 @@
 ## Bloque actual
 
 **Bloque:** B
-**Estado:** gate_pending
+**Estado:** merged ✓ (tag: 02-block-B)
 **Fecha apertura:** 2026-05-21 (sesión 2)
 **Última actualización:** 2026-05-21
 
