@@ -10,6 +10,39 @@ Próximas entradas por bloque.
 
 ---
 
+## [Bloque R] — 2026-05-21
+
+### Añadido
+- `backend/app/retrieval/`: módulo de retrieval modular (package-by-feature, ADR-011).
+  - `hybrid.py`: `PgVectorHybridSearcher` — búsqueda híbrida densa (coseno `<=>`) + léxica (`ts_rank_cd` sobre `content_tsv`) fusionada con Reciprocal Rank Fusion (k=60) en una **única query SQL** con CTEs y FULL OUTER JOIN (spec 02).
+  - `reranker.py`: LLM-as-reranker RankGPT listwise con Gemini Flash (ADR-004); parser tolerante (descarta ids inventados, reañade omitidos) y fallback robusto al orden híbrido ante JSON inválido / timeout / error (spec 03).
+  - `rewriter.py`: query rewriting multi-turn con sliding window N=5 (ADR-005); devuelve la query original si no hay historial o el LLM falla (spec 04).
+  - `orchestrator.py`: `retrieve()` — rewrite → embed → hybrid → rerank.
+  - `llm.py`: `GeminiChatAdapter` (Gemini Flash vía LangChain `ChatGoogleGenerativeAI`) y `QueryEmbeddingsAdapter` (`RETRIEVAL_QUERY`). `_extract_text` aplana el `content` en bloques de los modelos *thinking* de Gemini 3.x.
+  - `ports.py`, `models.py`, `prompts.py`, `router.py`.
+- `backend/app/observability/tracing.py`: setup OpenTelemetry → Phoenix con OpenInference para LangChain y helper `@traced` + `set_span_attributes` (ADR-008). Defensivo: no-op si Phoenix/libs no disponibles, gateado por `DISABLE_TRACING`.
+- `POST /retrieve`: endpoint que devuelve el top-5 reranqueado con scores (`rrf_score`, dense/sparse rank, `rerank_position`); no llama al generador.
+- `prompts/reranker.md`, `prompts/rewriter.md`: prompts versionados (metadata + placeholders `{{var}}`).
+- `scripts/manual_retrieval_check.py`: calcula recall@5 / MRR / hit-rate sobre el gold (híbrido o pipeline completo).
+- Tests: `backend/tests/retrieval/` (24 tests con Gemini y DB mockeados) + `backend/tests/conftest.py` (desactiva tracing en tests).
+- Dependencias: `arize-phoenix-otel`, `openinference-instrumentation-langchain`, `opentelemetry-exporter-otlp`.
+
+### Cambiado
+- `backend/app/main.py`: inicializa tracing al arranque e incluye el router de retrieval.
+- `backend/app/config.py`: añadidos `gemini_flash_model` (anclado `gemini-3.5-flash`), `corpus_sha` y parámetros de retrieval (candidatos 20, top_k 5, rrf_k 60, timeouts de rerank/rewrite).
+
+### Decisiones documentadas
+- **Model ID Flash anclado `gemini-3.5-flash`** (verificado vía `models.list()` de Google AI Studio el 2026-05-21; coincide con el default de ADR-001).
+- **Bug Gemini 3.x *thinking***: `ChatGoogleGenerativeAI` devuelve `content` como lista de bloques; sin aplanar daba cadena vacía y el reranker caía siempre en fallback (rerank ≡ híbrido). Corregido con `_extract_text` + test.
+- recall@5 medido sobre los 30 single-turn con `gold_chunks`; los 5 `no_se` (sin gold) se excluyen del recall por diseño y se reportan aparte.
+
+### Notas
+- **Baseline de retrieval** (corpus_sha `40e33e4`, 30 single-turn): recall@5 0.750 (híbrido) → **0.867** (con reranker); hit-rate 0.833 → 0.900; MRR 0.629 → **0.801**. Gate (recall@5 > 0.7) superado.
+- **Tracing verificado en el dashboard de Phoenix**: traza única con span por fase (rewrite/hybrid_search/rerank/retrieve) + span LLM auto-instrumentado.
+- **Deuda — BM25 cross-lingual**: queries en español vs corpus en inglés → la pierna léxica aporta poco (no comparten léxico salvo identificadores de código/API); el puente lo da el embedding denso multilingüe. No es problema de config del `tsvector` (los docs inglés deben seguir en `english`). A evaluar en iteración futura, probablemente con ADR corto.
+
+---
+
 ## [Bloque G] — 2026-05-21
 
 ### Añadido
