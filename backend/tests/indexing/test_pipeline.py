@@ -132,7 +132,7 @@ class TestRunIndexing:
     def test_idempotency_no_duplicate_chunks(
         self, loader: FakeBlobLoader, embeddings: FakeEmbeddings, store: FakeChunkStore
     ) -> None:
-        result1 = run_indexing(loader, embeddings, store, corpus_sha=_CORPUS_SHA)
+        run_indexing(loader, embeddings, store, corpus_sha=_CORPUS_SHA)
         count_after_first = store.count()
 
         result2 = run_indexing(loader, embeddings, store, corpus_sha=_CORPUS_SHA)
