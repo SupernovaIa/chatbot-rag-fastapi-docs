@@ -12,12 +12,16 @@ interface CitationsPanelProps {
   citations: Citation[];
   selectedIndex: number | null;
   onClose: () => void;
+  /** Called when the user selects a different citation from the list inside the
+   *  panel. The parent updates selectedIndex; no DOM events needed. */
+  onSelectIndex: (index: number) => void;
 }
 
 export default function CitationsPanel({
   citations,
   selectedIndex,
   onClose,
+  onSelectIndex,
 }: CitationsPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -111,15 +115,7 @@ export default function CitationsPanel({
                   ...styles.citItem,
                   ...(i === selectedIndex ? styles.citItemActive : {}),
                 }}
-                onClick={() => {
-                  // Bubble up: parent should update selectedIndex.
-                  // For simplicity we use a DOM event; the parent handles it via onCitationClick.
-                  // Since CitationsPanel doesn't have direct access to parent's handler,
-                  // we dispatch a custom event that ChatPage intercepts.
-                  document.dispatchEvent(
-                    new CustomEvent("select-citation", { detail: i }),
-                  );
-                }}
+                onClick={() => onSelectIndex(i)}
                 aria-label={`Cita ${i + 1}: ${cit.section || cit.source}`}
                 aria-current={i === selectedIndex ? "true" : undefined}
               >

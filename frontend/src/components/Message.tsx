@@ -26,7 +26,9 @@ export interface MessageData {
 
 interface MessageProps {
   message: MessageData;
-  onCitationClick: (index: number) => void;
+  /** Called with the 0-based citation index AND the message's own citations array,
+   *  so the parent can open exactly that message's sources regardless of turn order. */
+  onCitationClick: (index: number, citations: Citation[]) => void;
 }
 
 // Components override for react-markdown: strip wrapping <p> inside inline
@@ -40,11 +42,14 @@ const inlineComponents = {
 /**
  * Splits text on [N] citation markers and returns an array of React nodes:
  * text segments rendered through ReactMarkdown and [N] patterns as buttons.
+ *
+ * `citations` is the array that belongs to THIS message; clicking [N] opens
+ * citation N-1 from that same array, not from any other message.
  */
 function renderWithCitationChips(
   text: string,
   citations: Citation[],
-  onCitationClick: (idx: number) => void,
+  onCitationClick: (idx: number, citations: Citation[]) => void,
 ): React.ReactNode[] {
   const parts = text.split(/(\[\d+\])/);
   return parts.map((part, i) => {
@@ -57,7 +62,7 @@ function renderWithCitationChips(
         <button
           key={i}
           className="citation-chip"
-          onClick={() => hasCitation && onCitationClick(citIdx)}
+          onClick={() => hasCitation && onCitationClick(citIdx, citations)}
           disabled={!hasCitation}
           aria-label={`Ver cita ${n}`}
         >
@@ -104,7 +109,9 @@ export default function Message({ message, onCitationClick }: MessageProps) {
             renderWithCitationChips(
               message.content,
               message.citations!,
-              onCitationClick,
+              // Pass the message's own citations so the parent receives the
+              // exact array for this turn, not whichever is last in the list.
+              (idx, cits) => onCitationClick(idx, cits),
             )
           ) : (
             <ReactMarkdown

@@ -6,12 +6,14 @@
  */
 
 import { useEffect, useRef } from "react";
+import type { Citation } from "../api/chat";
 import Message, { type MessageData } from "./Message";
 
 interface MessageListProps {
   messages: MessageData[];
   loading: boolean; // true = awaiting first token
-  onCitationClick: (index: number) => void;
+  /** Receives the 0-based citation index plus the message's own citations array. */
+  onCitationClick: (index: number, citations: Citation[]) => void;
 }
 
 export default function MessageList({

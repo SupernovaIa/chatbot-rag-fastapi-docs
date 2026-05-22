@@ -20,7 +20,7 @@
  *     re-fetches the list (picks up newly created sessions, reorders by updated_at).
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { type Citation, getSession } from "../api/chat";
 import ChatInput from "../components/ChatInput";
@@ -37,17 +37,6 @@ import { useAuth } from "../hooks/useAuth";
 
 function newId(): string {
   return crypto.randomUUID();
-}
-
-// The citations shown in CitationsPanel belong to the LAST assistant message
-// that has them. We track the index into messages[], not a separate copy.
-function findLastCitations(messages: MessageData[]): Citation[] {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i].role === "assistant" && messages[i].citations?.length) {
-      return messages[i].citations!;
-    }
-  }
-  return [];
 }
 
 // ---------------------------------------------------------------------------
@@ -114,28 +103,14 @@ export default function ChatPage() {
 
   // ── Citation panel ────────────────────────────────────────────────────────
 
-  // Listen for select-citation events dispatched by CitationsPanel's own list.
-  useEffect(() => {
-    function handler(e: Event) {
-      const idx = (e as CustomEvent<number>).detail;
-      setSelectedCitationIndex(idx);
-    }
-    document.addEventListener("select-citation", handler);
-    return () => document.removeEventListener("select-citation", handler);
-  }, []);
-
-  function handleCitationClick(index: number) {
-    const cits = findLastCitations(messages);
-    setActiveCitations(cits);
+  /**
+   * Opens the CitationsPanel for a specific message's citations.
+   * `citations` comes directly from the clicked message — no global search.
+   */
+  function handleCitationClick(index: number, citations: Citation[]) {
+    setActiveCitations(citations);
     setSelectedCitationIndex(index);
   }
-
-  // Sync activeCitations when messages update (e.g. new citations arrive).
-  useEffect(() => {
-    if (selectedCitationIndex !== null) {
-      setActiveCitations(findLastCitations(messages));
-    }
-  }, [messages, selectedCitationIndex]);
 
   // ── Send message ─────────────────────────────────────────────────────────
 
@@ -255,6 +230,7 @@ export default function ChatPage() {
         citations={activeCitations}
         selectedIndex={selectedCitationIndex}
         onClose={() => setSelectedCitationIndex(null)}
+        onSelectIndex={setSelectedCitationIndex}
       />
     </div>
   );
