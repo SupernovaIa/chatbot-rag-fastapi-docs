@@ -130,10 +130,12 @@ class TestNextTurnIdx:
 
 class TestSaveTurn:
     def test_save_turn_executes_inserts_and_update(self) -> None:
-        engine = FakeEngine()
+        # FakeEngine returns (1,) for any query containing "coalesce" (next_turn_idx)
+        engine = FakeEngine({"coalesce": (1,)})
         store = ChatHistoryStore(engine)
         sid = uuid4()
-        # Should not raise
-        store.save_turn(sid, 1, "query text", "answer text", [{"source": "x.md"}])
-        # Verify the conn executed some statements
+        # Should not raise; returns the turn_idx used
+        result = store.save_turn(sid, "query text", "answer text", [{"source": "x.md"}])
+        assert result == 1
+        # Verify the conn executed some statements (advisory lock + inserts + update)
         assert len(engine.conn.executed) > 0

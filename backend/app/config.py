@@ -2,6 +2,7 @@
 
 from functools import lru_cache
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -45,6 +46,25 @@ class Settings(BaseSettings):
     # Secrets (no defaults in production; placeholders ease local boot)
     google_api_key: str = ""
     jwt_secret: str = "change-me"
+
+    # JWT token lifetimes (ADR-006)
+    jwt_access_ttl_s: int = 3600        # 1 hour
+    jwt_refresh_ttl_s: int = 604800     # 7 days
+
+    @model_validator(mode="after")
+    def _require_jwt_secret_in_prod(self) -> "Settings":
+        """Fail fast if JWT_SECRET is the insecure placeholder outside development."""
+        if self.environment != "development" and self.jwt_secret == "change-me":
+            raise ValueError(
+                "JWT_SECRET must be set to a strong secret in non-development environments. "
+                "The default 'change-me' value is not allowed in production."
+            )
+        return self
+
+    @property
+    def cookie_secure(self) -> bool:
+        """True in production (HTTPS only); False in development to allow plain HTTP."""
+        return self.environment != "development"
 
 
 @lru_cache

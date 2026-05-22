@@ -4,9 +4,17 @@ All operations use the same synchronous SQLAlchemy Engine as the retrieval
 feature. Callers that live in an async context must wrap calls with
 ``asyncio.to_thread`` (see router.py).
 
-Concurrency note: ``next_turn_idx`` grabs a row-level SHARE lock on the latest
-message so two concurrent requests for the same session don't race on turn_idx.
-The UNIQUE constraint on (session_id, turn_idx, role) is the last-resort guard.
+Concurrency — turn_idx serialisation
+--------------------------------------
+``save_turn`` acquires a session-scoped advisory lock (``pg_advisory_xact_lock``)
+BEFORE reading ``MAX(turn_idx)`` and inserting. The lock is held for the duration
+of the transaction and released automatically on commit/rollback. This prevents
+two concurrent requests for the same session from computing the same next index
+(TOCTOU gap closed). The UNIQUE constraint on (session_id, turn_idx, role) remains
+as an additional last-resort guard.
+
+``next_turn_idx`` is kept as a read-only helper (no lock) for callers that need
+a best-effort estimate before the actual save (e.g. pre-streaming logging).
 """
 
 from __future__ import annotations
@@ -31,7 +39,7 @@ class ChatHistoryStore:
     # Session management
     # ------------------------------------------------------------------
 
-    def get_or_create_session(self, session_id: UUID | None) -> UUID:
+    def get_or_create_session(self, session_id: UUID | None, user_id: UUID | None = None) -> UUID:
         """Return existing session UUID or create a new one.
 
         If *session_id* is given but not found in the DB, a new session is
@@ -47,12 +55,12 @@ class ChatHistoryStore:
                 conn.execute(
                     text(
                         """
-                        INSERT INTO chat_sessions (id)
-                        VALUES (:id)
+                        INSERT INTO chat_sessions (id, user_id)
+                        VALUES (:id, :user_id)
                         ON CONFLICT (id) DO NOTHING
                         """
                     ),
-                    {"id": str(sid)},
+                    {"id": str(sid), "user_id": str(user_id) if user_id else None},
                 )
         return sid
 
@@ -74,15 +82,21 @@ class ChatHistoryStore:
             updated_at=row[3],
         )
 
-    def list_sessions(self, limit: int = 50) -> list[ChatSession]:
+    def list_sessions(self, user_id: UUID | None = None, limit: int = 50) -> list[ChatSession]:
         with self._engine.connect() as conn:
-            rows = conn.execute(
-                text(
+            if user_id is not None:
+                query = (
+                    "SELECT id, user_id, created_at, updated_at "
+                    "FROM chat_sessions WHERE user_id = :uid ORDER BY updated_at DESC LIMIT :limit"
+                )
+                params = {"uid": str(user_id), "limit": limit}
+            else:
+                query = (
                     "SELECT id, user_id, created_at, updated_at "
                     "FROM chat_sessions ORDER BY updated_at DESC LIMIT :limit"
-                ),
-                {"limit": limit},
-            ).fetchall()
+                )
+                params = {"limit": limit}
+            rows = conn.execute(text(query), params).fetchall()
         return [
             ChatSession(
                 id=UUID(str(r[0])),
@@ -162,7 +176,11 @@ class ChatHistoryStore:
         ]
 
     def next_turn_idx(self, session_id: UUID) -> int:
-        """Return the next available turn_idx for *session_id* (1-based)."""
+        """Best-effort estimate of the next turn_idx (no lock, read-only).
+
+        Suitable for pre-streaming logging. The authoritative index is computed
+        inside ``save_turn`` under an advisory lock.
+        """
         with self._engine.connect() as conn:
             row = conn.execute(
                 text(
@@ -176,18 +194,36 @@ class ChatHistoryStore:
     def save_turn(
         self,
         session_id: UUID,
-        turn_idx: int,
         query: str,
         answer: str,
         citations: list[dict],
-    ) -> None:
+    ) -> int:
         """Insert the user and assistant rows for a completed turn.
 
-        Uses a single transaction with ON CONFLICT DO NOTHING so retries are safe.
-        Bumps ``chat_sessions.updated_at`` atomically.
+        Acquires a session-scoped advisory lock before computing ``turn_idx`` so
+        that concurrent requests on the same session are serialised. The lock is
+        released automatically when the transaction commits or rolls back.
+
+        Returns the turn_idx that was written.
         """
         citations_json = json.dumps(citations)
         with self._engine.begin() as conn:
+            # Serialise concurrent saves on the same session.
+            # hashtext() maps the UUID string to a 32-bit int for pg_advisory_xact_lock.
+            conn.execute(
+                text("SELECT pg_advisory_xact_lock(hashtext(:sid))"),
+                {"sid": str(session_id)},
+            )
+            # Read MAX(turn_idx) inside the lock — safe from TOCTOU.
+            row = conn.execute(
+                text(
+                    "SELECT COALESCE(MAX(turn_idx), 0) + 1 "
+                    "FROM chat_messages WHERE session_id = :sid"
+                ),
+                {"sid": str(session_id)},
+            ).fetchone()
+            turn_idx = row[0] if row else 1
+
             conn.execute(
                 text(
                     """
@@ -214,9 +250,8 @@ class ChatHistoryStore:
                 },
             )
             conn.execute(
-                text(
-                    "UPDATE chat_sessions SET updated_at = NOW() WHERE id = :sid"
-                ),
+                text("UPDATE chat_sessions SET updated_at = NOW() WHERE id = :sid"),
                 {"sid": str(session_id)},
             )
         logger.debug("Saved turn %d for session %s", turn_idx, session_id)
+        return turn_idx

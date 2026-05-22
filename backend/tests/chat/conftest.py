@@ -80,20 +80,23 @@ class FakeChatHistoryStore:
         self._messages: list[ChatMessage] = []
         self.saved_turns: list[dict] = []
 
-    def get_or_create_session(self, session_id: UUID | None = None) -> UUID:
+    def get_or_create_session(self, session_id: UUID | None = None, user_id: UUID | None = None) -> UUID:
         sid = session_id or uuid4()
         if sid not in self._sessions:
             now = datetime.now(tz=timezone.utc)
             self._sessions[sid] = ChatSession(
-                id=sid, user_id=None, created_at=now, updated_at=now
+                id=sid, user_id=user_id, created_at=now, updated_at=now
             )
         return sid
 
     def get_session(self, session_id: UUID) -> ChatSession | None:
         return self._sessions.get(session_id)
 
-    def list_sessions(self, limit: int = 50) -> list[ChatSession]:
-        return list(self._sessions.values())[:limit]
+    def list_sessions(self, user_id: UUID | None = None, limit: int = 50) -> list[ChatSession]:
+        sessions = self._sessions.values()
+        if user_id is not None:
+            sessions = (s for s in sessions if s.user_id == user_id)
+        return list(sessions)[:limit]
 
     def load_history(self, session_id: UUID, window: int = 5) -> list[ChatTurn]:
         turns: dict[int, dict] = {}
@@ -116,11 +119,12 @@ class FakeChatHistoryStore:
     def save_turn(
         self,
         session_id: UUID,
-        turn_idx: int,
         query: str,
         answer: str,
         citations: list[dict],
-    ) -> None:
+    ) -> int:
+        """Mirror of the real store: computes turn_idx internally, returns it."""
+        turn_idx = self.next_turn_idx(session_id)
         now = datetime.now(tz=timezone.utc)
         self._messages.append(
             ChatMessage(
@@ -153,6 +157,7 @@ class FakeChatHistoryStore:
                 "citations": citations,
             }
         )
+        return turn_idx
 
 
 # ---------------------------------------------------------------------------

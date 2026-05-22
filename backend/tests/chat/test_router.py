@@ -20,6 +20,7 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 
+from app.auth.router import current_active_user
 from app.main import app
 from app.retrieval.hybrid import PgVectorHybridSearcher
 from app.retrieval.llm import GeminiChatAdapter, QueryEmbeddingsAdapter
@@ -104,6 +105,11 @@ def client(fake_store, monkeypatch) -> TestClient:
     app.dependency_overrides[get_searcher] = lambda: dummy_searcher
     app.dependency_overrides[get_rewrite_llm] = lambda: dummy_llm
     app.dependency_overrides[get_rerank_llm] = lambda: dummy_llm
+
+    # Override auth: inject a fake active user
+    fake_user = MagicMock()
+    fake_user.id = uuid4()
+    app.dependency_overrides[current_active_user] = lambda: fake_user
 
     yield TestClient(app)
 
