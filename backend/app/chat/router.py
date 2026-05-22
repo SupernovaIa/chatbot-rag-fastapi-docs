@@ -39,6 +39,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 from sse_starlette.sse import EventSourceResponse
 
+from app.auth.models import User
+from app.auth.router import current_active_user
 from app.chat.generator import StreamingSession, stream_chat
 from app.chat.models import Citation
 from app.chat.prompts import build_prompt, citations_from_candidates
@@ -149,6 +151,7 @@ async def chat_endpoint(  # noqa: PLR0913
     embeddings: QueryEmbeddingsAdapter = Depends(get_embeddings),
     rewrite_llm: GeminiChatAdapter = Depends(get_rewrite_llm),
     rerank_llm: GeminiChatAdapter = Depends(get_rerank_llm),
+    current_user: User = Depends(current_active_user),
 ) -> EventSourceResponse:
     """Stream a RAG response for *body.query*.
 
@@ -159,7 +162,9 @@ async def chat_endpoint(  # noqa: PLR0913
     don't block the event loop. The generation phase is fully async (astream).
     """
     # 1. Resolve / create session
-    session_id = await asyncio.to_thread(store.get_or_create_session, body.session_id)
+    session_id = await asyncio.to_thread(
+        store.get_or_create_session, body.session_id, current_user.id
+    )
 
     # 2. Load history (sliding window N=5)
     history_turns = await asyncio.to_thread(
@@ -192,8 +197,9 @@ async def chat_endpoint(  # noqa: PLR0913
         candidates=retrieval_result.candidates,
     )
 
-    # 5. Reserve turn_idx before streaming (concurrency safety)
-    turn_idx = await asyncio.to_thread(store.next_turn_idx, session_id)
+    # 5. Best-effort turn_idx estimate for pre-streaming logging.
+    # The authoritative index is computed inside save_turn under an advisory lock.
+    turn_idx_hint = await asyncio.to_thread(store.next_turn_idx, session_id)
 
     # 6. Set up disconnect detection
     disconnect_event = asyncio.Event()
@@ -229,20 +235,20 @@ async def chat_endpoint(  # noqa: PLR0913
         if gen_session.cancelled:
             # Client disconnected or error — do not persist incomplete turn
             logger.debug(
-                "Stream cancelled for session %s turn %d — skipping persistence",
+                "Stream cancelled for session %s (hint turn %d) — skipping persistence",
                 session_id,
-                turn_idx,
+                turn_idx_hint,
             )
             return
 
         # Emit citations as final event
         yield {"data": json.dumps({"type": "citations", "items": citations_payload})}
 
-        # Persist the completed turn (sync → thread pool)
-        await asyncio.to_thread(
+        # Persist the completed turn (sync → thread pool).
+        # save_turn acquires an advisory lock and computes the authoritative turn_idx.
+        turn_idx = await asyncio.to_thread(
             store.save_turn,
             session_id,
-            turn_idx,
             body.query,
             gen_session.full_text,
             citations_payload,
@@ -275,9 +281,10 @@ async def chat_endpoint(  # noqa: PLR0913
 @router.get("/sessions")
 async def list_sessions(
     store: ChatHistoryStore = Depends(get_store),
+    current_user: User = Depends(current_active_user),
 ) -> list[SessionOut]:
-    """List all chat sessions (no auth until block AU)."""
-    sessions = await asyncio.to_thread(store.list_sessions)
+    """List chat sessions for the authenticated user."""
+    sessions = await asyncio.to_thread(store.list_sessions, current_user.id)
     return [
         SessionOut(
             id=s.id,
@@ -297,11 +304,14 @@ async def list_sessions(
 async def get_session(
     session_id: UUID,
     store: ChatHistoryStore = Depends(get_store),
+    current_user: User = Depends(current_active_user),
 ) -> SessionDetailOut:
-    """Full message history for a session (no auth until block AU)."""
+    """Full message history for a session (authenticated user must own it)."""
     session = await asyncio.to_thread(store.get_session, session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
+    if session.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Forbidden")
 
     messages = await asyncio.to_thread(store.get_session_messages, session_id)
     return SessionDetailOut(
