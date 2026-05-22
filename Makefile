@@ -14,9 +14,9 @@ dev:
 	docker compose up
 
 ## Levanta el stack completo con el build de producción (nginx :80).
-## Equivalente a: docker compose --profile prod up
+## Siempre reconstruye el bundle de Vite antes de arrancar nginx.
 prod:
-	docker compose --profile prod up
+	docker compose --profile prod up --build
 
 ## Para todos los servicios y elimina los contenedores (los volúmenes se conservan).
 down:

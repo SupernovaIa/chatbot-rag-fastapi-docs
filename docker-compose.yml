@@ -91,6 +91,12 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile.dev
+    volumes:
+      # Bind-mount source code so Vite HMR picks up file changes without rebuild.
+      - ./frontend:/app
+      # Anonymous volume preserves the image's node_modules (Linux binaries)
+      # and prevents the host's node_modules from shadowing them.
+      - /app/node_modules
     ports:
       - "5173:5173"
     depends_on:
