@@ -4,24 +4,36 @@
 
 ## Bloque actual
 
-**Bloque:** AU (Autenticación)
-**Estado:** gate_pending
-**Fecha apertura:** 2026-05-22 (sesión 7)
-**Última actualización:** 2026-05-22 (cierre de sesión 7)
+**Bloque:** D (Frontend chat completo)
+**Estado:** in_progress
+**Fecha apertura:** 2026-05-22 (sesión 8)
+**Última actualización:** 2026-05-22 (inicio de sesión 8)
 
-> Bloque CH completado ✓ (tag `05-block-CH` pendiente de merge humano). Bloque R completado ✓ (tag `04-block-R` pendiente de merge humano). Bloque G completado ✓ (tag `03-block-G` · PR #5). Bloque B completado ✓ (tag `02-block-B`). El histórico se conserva más abajo.
+> Bloque AU completado ✓ (tag `06-block-AU` pendiente de merge humano). Bloque CH completado ✓ (tag `05-block-CH` pendiente de merge humano). Bloque R completado ✓ (tag `04-block-R` pendiente de merge humano). Bloque G completado ✓ (tag `03-block-G` · PR #5). Bloque B completado ✓ (tag `02-block-B`). El histórico se conserva más abajo.
 
 ## Objetivo del bloque
 
-Autenticación básica (ADR-006): FastAPI Users con email + password + bcrypt + JWT en cookie httpOnly. Migración Alembic con tabla `users` y FK en `chat_sessions.user_id`; rutas `/auth/register|login|logout|me`; protección de `/chat` y `/chat/sessions*` con `current_user` + scoping por usuario; frontend con Login/Register, `useAuth`, routing público/protegido y CORS con `credentials: true`.
+Frontend de chat completo (Spec 11 / ADR-009): `useChatStream` hook (SSE POST, eventos `token`/`citations`/`error`, cancelación en desmontaje); componentes `ChatInput`, `MessageList`, `Message` (markdown + chips `[N]` clicables, rehype-sanitize XSS), `CitationsPanel`, `SessionSelector`; `Dockerfile.prod` nginx con proxy `/api/*`; perfil `prod` en `docker-compose.yml`; estilo según `docs/design-system.md`.
 
 ## Próxima acción concreta
 
-Al reanudar: gate humano. Si pasa, mergear la PR de `feat/auth` a `main` (squash) y crear el tag `06-block-AU`; si no, documentar el fallo y seguir en el bloque.
+Al reanudar: continuar implementación. Verificar build dev y prod; SSE por curl; sanitización XSS.
 
 ## Pendientes en este bloque
 
-Ninguno. Bloque completo, pendiente de gate humano.
+- [ ] `frontend/src/api/chat.ts` — listSessions, getSession
+- [ ] `frontend/src/hooks/useChatStream.ts` — SSE fetch streaming
+- [ ] `frontend/src/components/ChatInput.tsx`
+- [ ] `frontend/src/components/MessageList.tsx`
+- [ ] `frontend/src/components/Message.tsx` — markdown + citation chips
+- [ ] `frontend/src/components/CitationsPanel.tsx`
+- [ ] `frontend/src/components/SessionSelector.tsx`
+- [ ] `frontend/src/pages/ChatPage.tsx` — full rewrite
+- [ ] `frontend/src/index.css` — design system CSS variables
+- [ ] `frontend/index.html` — Google Fonts (Poppins, JetBrains Mono)
+- [ ] `frontend/package.json` — react-markdown, rehype-sanitize, remark-gfm
+- [ ] `frontend/Dockerfile.prod` + `frontend/nginx.conf`
+- [ ] `docker-compose.yml` — perfil `prod` para frontend-prod
 
 ## Completado en esta sesión (Bloque AU)
 
