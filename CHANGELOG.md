@@ -10,6 +10,46 @@ Próximas entradas por bloque.
 
 ---
 
+## [Bloque D — Frontend chat completo] — 2026-05-22
+
+### Añadido
+- `specs/11-frontend-chat.md` — spec del bloque D (frontend de chat): hook SSE, componentes, CitationsPanel, SessionSelector, build prod nginx, XSS, checklist de verificación.
+- `frontend/src/index.css` — design system completo: variables CSS (`--bg`, `--fg`, `--accent`, `--highlight`, `--muted`, `--green`, `--danger`, `--orange`); familia tipográfica Poppins (UI) y JetBrains Mono (código); estilos de prosa `.prose` (pre, code, blockquote, table, listas, headings); clase `.citation-chip` (verde `--highlight`, monoespaciada); cursor `.streaming-cursor` (naranja parpadeante); `@keyframes spin` para spinner de envío.
+- `frontend/src/api/chat.ts` — tipos `Citation`, `SessionOut`, `MessageOut`, `SessionDetailOut`; funciones `listSessions()` (`GET /chat/sessions`) y `getSession(id)` (`GET /chat/sessions/{id}`); `credentials: "include"` en todas las llamadas.
+- `frontend/src/hooks/useChatStream.ts` — hook `useChatStream`: consume `POST /chat/` como SSE vía `fetch` + `ReadableStream`; parsea líneas `data: <json>` del formato sse_starlette; gestiona `AbortController` (cancela al desmontar o al iniciar nueva petición); callbacks `onToken(text)`, `onCitations(citations)`, `onDone()`; expone `streaming`, `error`, `sendMessage`, `cancel`.
+- `frontend/src/components/ChatInput.tsx` — textarea + botón enviar con icono SVG; `Enter` envía, `Shift+Enter` inserta salto; deshabilitado (aria-disabled) durante streaming; spinner animado en botón; label `sr-only`; focus visible en todos los interactivos.
+- `frontend/src/components/MessageList.tsx` — lista scrollable con `role="log"` y `aria-live="polite"`; auto-scroll al bottom (`scrollIntoView`) en cada cambio de mensajes; estado vacío con texto orientativo; indicador de loading (tres puntos naranja animados) mientras espera el primer token.
+- `frontend/src/components/Message.tsx` — burbujas de chat: usuario (derecha, `#eef6f3`, `pre-wrap`) y asistente (izquierda, fondo transparente); render markdown con `ReactMarkdown` + `remark-gfm` + `rehype-sanitize` (XSS); cuando `citations` está presente y no hay streaming activo, `[N]` en el texto se transforman en `.citation-chip` clicables via `renderWithCitationChips`; cursor naranja durante streaming.
+- `frontend/src/components/CitationsPanel.tsx` — panel deslizante fijo (lado derecho, `min(420px, 100vw)`); muestra número de cita, sección, URL fuente (enlace externo) y hash truncado; lista de todas las citas con resaltado de la activa; cierre con botón ✕, clic en backdrop o tecla Escape; `role="complementary"`, `aria-label`; auto-foco en apertura; `select-citation` custom event para navegación interna.
+- `frontend/src/components/SessionSelector.tsx` — sidebar izquierda (220 px); carga `GET /chat/sessions` en mount y ante incremento de `refreshTrigger`; ordena por `updated_at` desc; botón "Nueva conversación"; sesión activa con `aria-current`; estados de carga, error y vacío.
+- `frontend/nginx.conf` — servidor nginx para build de producción: `try_files` para SPA; `location /api/` proxied a `http://backend:8000/` con strip del prefijo; `proxy_buffering off` + `proxy_http_version 1.1` para SSE token-a-token sin acumulación de buffer.
+- `frontend/Dockerfile.prod` — build multi-stage: etapa `node:22-alpine` con `npm ci` + `npm run build` (`VITE_API_URL=/api`); etapa `nginx:1.27-alpine` que sirve `dist/` y usa `nginx.conf`. Puerto 80.
+
+### Cambiado
+- `frontend/src/pages/ChatPage.tsx` — reescritura completa: cabecera con badge RAG + email + botón salir; layout flex con `SessionSelector` (sidebar) + `MessageList` + `ChatInput`; panel `CitationsPanel` superpuesto; gestión de `currentSessionId` con `crypto.randomUUID()` client-side (idempotente en backend); `refreshTrigger` incremental post-turno; `loadSession` reconstruye el array de mensajes desde `GET /chat/sessions/{id}`; indicador de error SSE en header; escucha `select-citation` DOM event.
+- `frontend/index.html` — añadidas `<link>` para Google Fonts: Poppins (400/500/600) y JetBrains Mono (400/500) con `preconnect` + `display=swap`.
+- `frontend/src/main.tsx` — importa `./index.css`.
+- `frontend/package.json` + `package-lock.json` — nuevas dependencias de producción: `react-markdown@^9.1.0`, `rehype-sanitize@^6.0.0`, `remark-gfm@^4.0.1`.
+- `docker-compose.yml` — servicio `frontend-prod` (puerto `80:80`, `Dockerfile.prod`, `profiles: [prod]`); el servicio `frontend` existente (dev) no cambia.
+
+### Decisiones documentadas
+- **SSE via `fetch` + `ReadableStream`**: `EventSource` sólo soporta GET. `POST /chat/` necesita body JSON, por lo que se lee el stream de bytes directamente y se parsean líneas `data:`. `AbortController` garantiza la cancelación en desmontaje.
+- **UUID de sesión client-side**: El backend acepta `session_id: UUID | None`; si el UUID no existe, lo crea (idempotente por `ON CONFLICT DO NOTHING`). El frontend genera el UUID con `crypto.randomUUID()` para conocer el `session_id` desde el primer turno sin añadir campo a la respuesta SSE.
+- **`rehype-sanitize` con schema por defecto**: Schema verificado programáticamente: `<script>` ausente de `tagNames`, sin atributos `on*` en wildcards. Protege contra XSS de chunks del corpus incluidos en respuestas del modelo.
+- **Citation chips via split de texto**: `renderWithCitationChips` divide la cadena markdown en `[N]` (botones) y fragmentos de prosa (ReactMarkdown con `p → <>{children}</>`). Evita remark plugins custom sin perder la render correcta de markdown.
+- **`refreshTrigger` prop para re-fetch de sesiones**: Contador incrementado tras `onCitations` y `onDone` que dispara `useEffect` en `SessionSelector`. Simple, sin Context global ni polling.
+- **Perfil `prod` separado en docker-compose**: `frontend-prod` con `profiles: [prod]` no interfiere con el stack dev por defecto. Se activa con `docker compose --profile prod up`.
+
+### Notas
+- **147 tests backend, todos verdes. Ruff limpio. TypeScript sin errores** (`tsc --noEmit`).
+- **Build de producción verificado**: 311 módulos transformados, 365 KB JS (gzip 115 KB), CSS 2.3 KB.
+- **SSE verificado en vivo**: `curl -N` con cookie → stream `token` × N + evento `citations` final.
+- **Sanitización XSS verificada** con la librería directamente (node): `<script>` y `on*` fuera del schema por defecto.
+- **Sin tests automáticos de frontend** en v1.0 (deuda registrada en spec 11, riesgo documentado).
+- **Checklist visual para Javi**: 10 puntos en `SESSION.md` (flujo register→chat→multi-turno→sesiones persistentes→prod→logout).
+
+---
+
 ## [Bloque AU] — 2026-05-22
 
 ### Añadido
