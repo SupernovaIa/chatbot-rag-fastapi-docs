@@ -103,6 +103,26 @@ services:
       retries: 10
       start_period: 15s
 
+  # Production frontend: nginx serves the Vite bundle and proxies /api/* to backend.
+  # Run with: docker compose --profile prod up
+  frontend-prod:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+    ports:
+      - "80:80"
+    depends_on:
+      backend:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:80 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    profiles:
+      - prod
+
 volumes:
   postgres_data:
   azurite_data:
