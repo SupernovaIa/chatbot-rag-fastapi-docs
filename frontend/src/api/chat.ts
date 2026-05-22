@@ -15,6 +15,9 @@ export interface Citation {
   source: string;
   section: string;
   chunk_hash: string;
+  /** Raw text of the retrieved documentation chunk. Present on live turns
+   *  and on sessions loaded from history (stored in the citations JSONB). */
+  content?: string;
 }
 
 export interface SessionOut {

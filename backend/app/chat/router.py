@@ -216,7 +216,12 @@ async def chat_endpoint(  # noqa: PLR0913
     # 7. Build SSE generator
     gen_session = StreamingSession()
     citations_payload = [
-        {"source": c.source, "section": c.section, "chunk_hash": c.chunk_hash}
+        {
+            "source": c.source,
+            "section": c.section,
+            "chunk_hash": c.chunk_hash,
+            "content": c.content,
+        }
         for c in citations
     ]
 

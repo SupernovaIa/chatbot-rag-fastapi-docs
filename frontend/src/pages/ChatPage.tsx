@@ -51,6 +51,7 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<MessageData[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false); // waiting for first token
+  const [sessionLoadError, setSessionLoadError] = useState<string | null>(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [selectedCitationIndex, setSelectedCitationIndex] = useState<number | null>(null);
   const [activeCitations, setActiveCitations] = useState<Citation[]>([]);
@@ -68,21 +69,22 @@ export default function ChatPage() {
   // ── Load session history ─────────────────────────────────────────────────
 
   const loadSession = useCallback(async (sessionId: string) => {
+    setSessionLoadError(null);
     try {
       const detail = await getSession(sessionId);
       // Rebuild messages array from history.
-      const rebuilt: MessageData[] = [];
-      // Messages come as turn_idx/role/content/citations pairs. Group by turn.
-      for (const msg of detail.messages) {
-        rebuilt.push({
-          id: `${sessionId}-${msg.turn_idx}-${msg.role}`,
-          role: msg.role as "user" | "assistant",
-          content: msg.content,
-          citations: msg.citations as Citation[],
-        });
-      }
+      // Each row has turn_idx / role / content / citations.
+      const rebuilt: MessageData[] = detail.messages.map((msg) => ({
+        id: `${sessionId}-${msg.turn_idx}-${msg.role}`,
+        role: msg.role as "user" | "assistant",
+        content: msg.content,
+        citations: msg.citations,
+      }));
       setMessages(rebuilt);
-    } catch {
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[ChatPage] loadSession failed:", msg);
+      setSessionLoadError(`Error al cargar la sesión: ${msg}`);
       setMessages([]);
     }
   }, []);
@@ -92,6 +94,7 @@ export default function ChatPage() {
       setCurrentSessionId(sessionId);
       setSelectedCitationIndex(null);
       setActiveCitations([]);
+      setSessionLoadError(null);
       if (sessionId) {
         loadSession(sessionId);
       } else {
@@ -190,6 +193,11 @@ export default function ChatPage() {
           {streamError && (
             <span style={styles.errorBadge} role="alert">
               {streamError}
+            </span>
+          )}
+          {sessionLoadError && (
+            <span style={styles.errorBadge} role="alert">
+              {sessionLoadError}
             </span>
           )}
           <span style={styles.email} aria-label={`Usuario: ${user?.email}`}>

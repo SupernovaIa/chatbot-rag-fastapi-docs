@@ -86,15 +86,14 @@ export default function CitationsPanel({
           {citation.source && (
             <p style={styles.source}>
               <strong>Fuente:</strong>{" "}
-              <a
-                href={citation.source}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={styles.link}
-              >
-                {citation.source}
-              </a>
+              <span style={styles.sourceText}>{citation.source}</span>
             </p>
+          )}
+          {citation.content && (
+            <div style={styles.chunkWrapper}>
+              <p style={styles.chunkLabel}>Fragmento</p>
+              <pre style={styles.chunkContent}>{citation.content}</pre>
+            </div>
           )}
           {citation.chunk_hash && (
             <p style={styles.meta}>
@@ -216,9 +215,41 @@ const styles = {
     wordBreak: "break-all" as const,
   } as React.CSSProperties,
 
-  link: {
-    color: "var(--accent)",
-    textDecoration: "underline",
+  sourceText: {
+    fontFamily: "var(--font-mono)",
+    fontSize: "0.85em",
+    color: "var(--muted)",
+  } as React.CSSProperties,
+
+  chunkWrapper: {
+    display: "flex",
+    flexDirection: "column" as const,
+    gap: "0.3rem",
+  } as React.CSSProperties,
+
+  chunkLabel: {
+    margin: 0,
+    fontSize: "0.8rem",
+    fontWeight: 600,
+    color: "var(--muted)",
+    textTransform: "uppercase" as const,
+    letterSpacing: "0.05em",
+  } as React.CSSProperties,
+
+  chunkContent: {
+    margin: 0,
+    padding: "0.75rem",
+    background: "#f5f8f9",
+    border: "1px solid #dde3e5",
+    borderRadius: 6,
+    fontSize: "0.82rem",
+    fontFamily: "var(--font-sans)",
+    lineHeight: 1.6,
+    whiteSpace: "pre-wrap" as const,
+    wordBreak: "break-word" as const,
+    overflowY: "auto" as const,
+    maxHeight: "40vh",
+    color: "var(--fg)",
   } as React.CSSProperties,
 
   meta: {

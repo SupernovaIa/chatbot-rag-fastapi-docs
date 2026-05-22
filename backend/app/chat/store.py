@@ -238,7 +238,7 @@ class ChatHistoryStore:
                 text(
                     """
                     INSERT INTO chat_messages (session_id, turn_idx, role, content, citations)
-                    VALUES (:sid, :turn, 'assistant', :content, :citations::jsonb)
+                    VALUES (:sid, :turn, 'assistant', :content, CAST(:citations AS jsonb))
                     ON CONFLICT (session_id, turn_idx, role) DO NOTHING
                     """
                 ),
