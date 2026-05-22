@@ -125,6 +125,7 @@ def citations_from_candidates(candidates: list[Candidate]) -> list[Citation]:
             source=c.source,
             section=c.section,
             chunk_hash=c.chunk_hash,
+            content=c.content,
         )
         for c in candidates
     ]

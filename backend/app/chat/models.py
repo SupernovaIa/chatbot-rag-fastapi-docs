@@ -37,6 +37,7 @@ class Citation:
     source: str
     section: str
     chunk_hash: str = ""
+    content: str = ""
 
 
 @dataclass

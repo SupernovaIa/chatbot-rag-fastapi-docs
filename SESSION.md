@@ -4,95 +4,127 @@
 
 ## Bloque actual
 
-**Bloque:** AU (Autenticación)
+**Bloque:** D (Frontend chat completo)
 **Estado:** gate_pending
-**Fecha apertura:** 2026-05-22 (sesión 7)
-**Última actualización:** 2026-05-22 (cierre de sesión 7)
+**Fecha apertura:** 2026-05-22 (sesión 8)
+**Última actualización:** 2026-05-22 (cierre de sesión 8 — review fixes)
 
-> Bloque CH completado ✓ (tag `05-block-CH` pendiente de merge humano). Bloque R completado ✓ (tag `04-block-R` pendiente de merge humano). Bloque G completado ✓ (tag `03-block-G` · PR #5). Bloque B completado ✓ (tag `02-block-B`). El histórico se conserva más abajo.
+> Bloque AU completado ✓ (tag `06-block-AU` pendiente de merge humano). Bloque CH completado ✓ (tag `05-block-CH` pendiente de merge humano). Bloque R completado ✓ (tag `04-block-R` pendiente de merge humano). Bloque G completado ✓ (tag `03-block-G` · PR #5). Bloque B completado ✓ (tag `02-block-B`). El histórico se conserva más abajo.
 
 ## Objetivo del bloque
 
-Autenticación básica (ADR-006): FastAPI Users con email + password + bcrypt + JWT en cookie httpOnly. Migración Alembic con tabla `users` y FK en `chat_sessions.user_id`; rutas `/auth/register|login|logout|me`; protección de `/chat` y `/chat/sessions*` con `current_user` + scoping por usuario; frontend con Login/Register, `useAuth`, routing público/protegido y CORS con `credentials: true`.
+Frontend de chat completo (Spec 11 / ADR-009): `useChatStream` hook (SSE POST, eventos `token`/`citations`/`error`, cancelación en desmontaje); componentes `ChatInput`, `MessageList`, `Message` (markdown + chips `[N]` clicables, rehype-sanitize XSS), `CitationsPanel`, `SessionSelector`; `Dockerfile.prod` nginx con proxy `/api/*`; perfil `prod` en `docker-compose.yml`; estilo según `docs/design-system.md`.
 
 ## Próxima acción concreta
 
-Al reanudar: gate humano. Si pasa, mergear la PR de `feat/auth` a `main` (squash) y crear el tag `06-block-AU`; si no, documentar el fallo y seguir en el bloque.
+Al reanudar: gate humano. Si pasa, mergear la PR de `feat/chat-frontend` a `main` (squash) y crear el tag `07-block-D`; si no, documentar el fallo y seguir en el bloque.
 
 ## Pendientes en este bloque
 
 Ninguno. Bloque completo, pendiente de gate humano.
 
-## Completado en esta sesión (Bloque AU)
+## Completado en esta sesión (Bloque D, sesión 8)
 
-- [x] Primer commit de rama: CH marcado como completado, AU como in_progress; nota de caching corregida en CHANGELOG.md y SESSION.md.
-- [x] `backend/migrations/versions/0003_create_users_add_fk.py` — tabla `users` (id UUID PK, email UNIQUE, hashed_password, is_active, is_superuser, is_verified) + `CREATE UNIQUE INDEX ix_users_email` + FK `chat_sessions.user_id → users.id ON DELETE SET NULL`. Migración ejecutada contra stack Docker real.
-- [x] `backend/app/auth/models.py` — `User(SQLAlchemyBaseUserTableUUID, Base)` con `__tablename__ = "users"`.
-- [x] `backend/app/auth/schema.py` — `UserRead`, `UserCreate`, `UserUpdate`.
-- [x] `backend/app/auth/db.py` — async engine singleton + `async_sessionmaker` (psycopg v3); `get_async_session`; `get_user_db → SQLAlchemyUserDatabase`. Coexiste con el engine sync de chat/retrieval.
-- [x] `backend/app/auth/manager.py` — `UserManager(UUIDIDMixin, BaseUserManager)` con `on_after_register`/`on_after_login`.
-- [x] `backend/app/auth/router.py` — `access_backend` (cookie `access_token`, httpOnly, SameSite=Lax, TTL 1 h, `cookie_secure` basado en `environment`) + `refresh_backend` (cookie `refresh_token`, TTL 7 d). `FastAPIUsers` instance + `current_active_user`. Rutas: `POST /auth/register|login|logout`, `GET /auth/me`, `POST /auth/refresh/login|logout`, `PATCH /auth/me`.
-- [x] `backend/app/config.py` — `jwt_access_ttl_s = 3600`, `jwt_refresh_ttl_s = 604800`; `model_validator` que falla al arrancar si `environment != "development"` y `jwt_secret == "change-me"`; propiedad `cookie_secure`.
-- [x] `backend/app/main.py` — `CORSMiddleware` (`allow_origins=["http://localhost:5173"]`, `allow_credentials=True`); `auth_router` incluido.
-- [x] `backend/app/chat/store.py` — `get_or_create_session(session_id, user_id=None)` inserta `user_id`; `list_sessions(user_id=None)` filtra por usuario; `save_turn` adquiere `pg_advisory_xact_lock` antes de leer `MAX(turn_idx)` (cierra la carrera TOCTOU de bloque CH), devuelve el `turn_idx` escrito; docstring actualizado.
-- [x] `backend/app/chat/router.py` — tres endpoints protegidos con `current_active_user`; POST /chat pasa `user_id`; `list_sessions` filtra por usuario; `get_session` devuelve 403 si `session.user_id != current_user.id`; `turn_idx_hint` para log pre-stream; `turn_idx` authoritative devuelto por `save_turn`.
-- [x] `backend/pyproject.toml` + `uv.lock` — `fastapi-users[sqlalchemy]>=13.0` (instalada 15.0.5).
-- [x] `backend/tests/auth/test_auth.py` — 10 tests: guards 401 (POST /chat, GET /sessions, GET /sessions/{id}), scoping 403 (sesión ajena), 200 (sesión propia), filtrado de lista, rutas existentes.
-- [x] `backend/tests/chat/conftest.py` + `test_store.py` — `FakeChatHistoryStore.save_turn` sin `turn_idx` explícito, computa internamente y devuelve el índice.
-- [x] `backend/tests/chat/test_router.py` — fixture `client` inyecta `current_active_user` con `fake_user`. **145 tests totales, todos verdes. Ruff limpio.**
-- [x] `frontend/src/api/auth.ts` — `register`, `login` (form-encoded), `logout`, `getMe`.
-- [x] `frontend/src/hooks/useAuth.tsx` — `AuthProvider` + `useAuth`; rehydrata desde cookie en mount.
-- [x] `frontend/src/components/ProtectedRoute.tsx` — redirige a `/login` si no autenticado.
-- [x] `frontend/src/pages/Login.tsx` + `Register.tsx` + `ChatPage.tsx`.
-- [x] `frontend/src/App.tsx` — `BrowserRouter` + `AuthProvider`; rutas públicas `/login|/register`; ruta protegida `/`. TypeScript compila sin errores.
-- [x] `frontend/tsconfig.node.json` — `noEmit: false` (corrección: `composite: true` + `noEmit: true` es inválido).
-- [x] `frontend/package.json` — dep `react-router-dom ^7`.
+- [x] Primer commit de rama: `specs/11-frontend-chat.md` committeado; AU marcado como completado, D como in_progress.
+- [x] `frontend/index.html` — Google Fonts: Poppins (400/500/600) + JetBrains Mono (400/500).
+- [x] `frontend/src/index.css` — CSS variables del design system (`--bg`, `--fg`, `--accent`, `--highlight`, `--muted`, `--green`, `--danger`, `--orange`); tipografía Poppins/JetBrains Mono; estilos `.prose` para markdown (pre, code, blockquote, table, ul/ol); `.citation-chip`; `.streaming-cursor` con animación blink; `@keyframes spin` para botón de envío.
+- [x] `frontend/src/main.tsx` — importa `index.css`.
+- [x] `frontend/src/api/chat.ts` — tipos `Citation`, `SessionOut`, `MessageOut`, `SessionDetailOut`; funciones `listSessions()` y `getSession(sessionId)`.
+- [x] `frontend/src/hooks/useChatStream.ts` — hook que consume `POST /chat/` como SSE vía `fetch` + `ReadableStream`; gestiona `AbortController` (cancela en unmount y al iniciar nueva petición); parsea líneas `data: <json>` de sse_starlette; callbacks `onToken`, `onCitations`, `onDone`; expone `streaming`, `error`, `sendMessage`, `cancel`.
+- [x] `frontend/src/components/ChatInput.tsx` — textarea + botón enviar; `Enter` envía, `Shift+Enter` inserta salto; deshabilitado durante streaming; spinner animado en botón; focus states accesibles.
+- [x] `frontend/src/components/MessageList.tsx` — lista scrollable con `aria-live`; auto-scroll al bottom en cada cambio; estado vacío; indicador de loading (dots animados) antes del primer token.
+- [x] `frontend/src/components/Message.tsx` — burbujas usuario (derecha, `#eef6f3`) y asistente (izquierda, transparente); markdown con `react-markdown` + `remark-gfm` + `rehype-sanitize`; cuando llegan citations, `[N]` se convierten en `.citation-chip` clicables con `renderWithCitationChips`; cursor de streaming animado; XSS: `<script>` y handlers `on*` eliminados por `rehype-sanitize`.
+- [x] `frontend/src/components/CitationsPanel.tsx` — panel deslizante fijo (derecha); muestra `section`, `source` (enlace) y `chunk_hash` truncado; lista de todas las citas con resaltado de la activa; cierre con botón ✕ o tecla Escape; backdrop click-to-close; `aria-label` + focus en apertura.
+- [x] `frontend/src/components/SessionSelector.tsx` — sidebar izquierda; carga `GET /chat/sessions` en mount y ante `refreshTrigger`; ordena por `updated_at` desc; botón "Nueva conversación"; sesión activa resaltada; manejo de error y estado vacío.
+- [x] `frontend/src/pages/ChatPage.tsx` — reescritura completa: header con badge RAG + email + botón salir; layout sidebar + chat-area; integra `SessionSelector`, `MessageList`, `ChatInput`, `CitationsPanel`; gestión de `currentSessionId` con `crypto.randomUUID()` para nuevas sesiones (idempotente en backend); `refreshTrigger` post-turno; `loadSession` reconstruye mensajes desde historial; indicador de error SSE.
+- [x] `frontend/nginx.conf` — config nginx: SPA fallback `try_files`; `location /api/` proxy a `http://backend:8000/`; `proxy_buffering off` + `proxy_http_version 1.1` para SSE token-a-token.
+- [x] `frontend/Dockerfile.prod` — multi-stage: `node:22-alpine` build con `VITE_API_URL=/api`; `nginx:1.27-alpine` serve; `dist/` copiado al webroot de nginx.
+- [x] `docker-compose.yml` — servicio `frontend-prod` (puerto 80, `Dockerfile.prod`, `profiles: [prod]`).
+- [x] `frontend/package.json` + `package-lock.json` — nuevas deps: `react-markdown@^9.1.0`, `rehype-sanitize@^6.0.0`, `remark-gfm@^4.0.1`.
+- [x] **Fix review #1 — citations scoping por mensaje**: `onCitationClick(idx, citations)` ahora lleva el array `citations` del propio mensaje; `renderWithCitationChips` lo pasa hacia arriba; `ChatPage.handleCitationClick` lo usa directamente. Eliminados `findLastCitations` y el `useEffect` de sincronización de `activeCitations`. Verificado en vivo con conversación de 2 turnos (sources distintos por turno).
+- [x] **Fix review #2 — eliminar DOM event bus**: `CitationsPanel` recibe `onSelectIndex: (i: number) => void` como prop y lo llama directamente; eliminado `document.dispatchEvent(CustomEvent)`. `ChatPage` pasa `onSelectIndex={setSelectedCitationIndex}` y elimina el `document.addEventListener("select-citation", ...)`.
+- [x] `Makefile` — `make dev` / `make prod` / `make down` como atajos de `docker compose`.
+- [x] Issue #16 abierto con los findings 🟡🟢 del review (dead ref, double refresh, SyntaxError frágil, silent error, dots blink, type cast, reader cleanup, gzip).
 
-## Decisiones tomadas en este bloque (AU)
+## Decisiones tomadas en este bloque (D)
 
-- **Async engine separado para FastAPI Users (ADR-006)**: psycopg v3 soporta `create_async_engine` con `postgresql+psycopg://`. El engine sync de chat/retrieval no se toca; el async sólo lo usa `app/auth/db.py`.
-- **Dos cookies httpOnly (ADR-006)**: `access_token` (1 h) + `refresh_token` (7 d). Ambas httpOnly + SameSite=Lax. `Secure` sólo en `environment != "development"` (propiedad `cookie_secure` en Settings).
-- **`__tablename__ = "users"`**: SQLAlchemy defaultearía a `user`, palabra reservada en Postgres. Override explícito.
-- **Login form-encoded (OAuth2 PasswordRequestForm)**: FastAPI Users `CookieTransport` usa `username` + `password` como form data. Frontend envía `application/x-www-form-urlencoded`.
-- **Arranque bloqueado en producción sin JWT_SECRET**: `model_validator` con `mode="after"` falla si `environment != "development"` y `jwt_secret == "change-me"`.
-- **Cierre de la carrera `next_turn_idx` (pendiente de bloque CH)**: `save_turn` adquiere `pg_advisory_xact_lock(hashtext(session_id))` antes de leer `MAX(turn_idx)`. El MAX y los INSERTs están dentro de la misma transacción bloqueada. `next_turn_idx` se mantiene como estimación pre-stream (sin lock, para logging). El UNIQUE constraint en `(session_id, turn_idx, role)` sigue como last-resort guard.
-- **Stubs de retrieval en tests de guard 401**: FastAPI resuelve todas las deps antes de rechazar por auth; sin stubs de Gemini/DB los tests de guard darían 500 antes de llegar a 401.
+- **SSE vía `fetch` (no `EventSource`)**: `EventSource` sólo soporta GET; el endpoint `/chat/` es POST con body. Se lee `ReadableStream` directamente y se parsean líneas `data:`. Cancelación por `AbortController`.
+- **Session UUID client-side (`crypto.randomUUID()`)**: El backend acepta `session_id: UUID | None`; si se pasa un UUID que no existe, lo crea (idempotente). Así el frontend sabe el ID de la sesión desde el primer turno, sin necesidad de un campo extra en la respuesta SSE.
+- **`rehype-sanitize` con schema por defecto**: El schema por defecto no incluye `<script>` ni atributos `on*` en ningún elemento. Verificado programáticamente. Protege contra XSS desde contenido de chunks.
+- **`[N]` chips via split**: La función `renderWithCitationChips` divide el texto en `[N]` y fragmentos de markdown. Cada fragmento va a una instancia de `ReactMarkdown` con `p → <>{children}</>` para evitar p anidados. No requiere plugins remark/rehype extra.
+- **`refreshTrigger` para SessionSelector**: Después de cada `onCitations` y `onDone`, se incrementa un contador que pasa como prop a `SessionSelector`. Éste tiene un `useEffect([refreshTrigger])` que re-fetch las sesiones. Simple y sin contexto global.
+- **`frontend-prod` como perfil separado**: El servicio dev (`frontend`) queda sin perfil (arranca por defecto). El servicio prod (`frontend-prod`) tiene `profiles: [prod]` para no mezclarse. Se activa con `docker compose --profile prod up` o `make prod`.
+- **Citations scoping por mensaje (fix #1)**: `onCitationClick` lleva `(idx, citations)` — el array de citas del mensaje clickado, no una búsqueda global. `ChatPage` usa ese array directamente para abrir `CitationsPanel`.
+- **Props React en lugar de DOM events (fix #2)**: `CitationsPanel.onSelectIndex` prop sustituye al `CustomEvent("select-citation")`. Elimina el acoplamiento implícito entre componentes hermanos a través del DOM.
 
 ## Blockers
 
 Ninguno.
 
-## Verificación pre-cierre (sesión 7, Bloque AU)
+## Verificación pre-cierre (sesión 8, Bloque D)
 
 - `cd backend && uv run ruff check .` → `All checks passed!` ✓
-- `cd backend && uv run pytest tests/ -q` → 145 passed ✓
+- `cd backend && uv run pytest tests/ -q` → `147 passed` ✓
 - `npx commitlint --from $(git merge-base HEAD main) --to HEAD` → exit 0 ✓
 
-## Verificación live contra stack Docker (sesión 7)
+## Verificación por agente (sesión 8, Bloque D)
 
 | Check | Evidencia | Resultado |
 |---|---|---|
-| 1. POST /chat sin cookie → 401 | `curl -X POST /chat/ -d ...` → `401` | ✅ |
-| 2. Cookie A → sesión de B → 403 | User B creado (id `71eb34a5`), sesión insertada en DB, login A, `GET /chat/sessions/<B session>` → `403` | ✅ |
-| 3. Flujo register→login→me→logout→/chat | Register `201`, login `204`, `Set-Cookie: access_token=...; HttpOnly; Max-Age=3600; SameSite=lax` + `access-control-allow-credentials: true`, GET /me `200` sin `hashed_password`, logout `204` + `Set-Cookie: access_token=""; Max-Age=0`, POST /chat post-logout `401` | ✅ |
-| 4. JWT_SECRET en prod sin setear falla | `docker run -e ENVIRONMENT=production` → `ValidationError: JWT_SECRET must be set…` | ✅ (arreglado) |
-| 5. Cookie Secure dev/prod | Dev: sin `Secure`; access `Max-Age=3600`; refresh `Max-Age=604800` (7 d) | ✅ (arreglado) |
-| 6. UserRead no expone hash | `GET /auth/me` → sólo `id`, `email`, `is_active`, `is_superuser`, `is_verified` | ✅ |
-| 7. Carrera next_turn_idx cerrada | `pg_advisory_xact_lock` funcional en DB; `save_turn` recomputa dentro de la transacción bloqueada | ✅ (arreglado) |
+| 1. `tsc --noEmit` | Sin errores de tipo | ✅ |
+| 2. `npm run build` (dev + prod) | `311 modules transformed. ✓ built in ~700ms` | ✅ |
+| 3. SSE por `curl -N` con cookie | `data: {"type": "token", ...}` × N + `data: {"type": "citations", ...}` | ✅ |
+| 4. `GET /chat/sessions` con cookie | `[{"id": "...", "updated_at": "..."}]` | ✅ |
+| 5. Sanitización XSS | `defaultSchema.tagNames` no incluye `script`; attrs `on*` ausentes | ✅ |
+
+## Checklist de navegador para Javi (Spec 11 — verificación visual)
+
+Requisito de la spec: "La parte visual la verifica Javi con una checklist corta que el agente deja preparada."
+
+Arrancar el stack: `docker compose up -d`
+
+1. **Register → chat**: Abrir `http://localhost:5173/register`, crear cuenta nueva → debe redirigir a `/` con la UI de chat.
+2. **Login**: Cerrar sesión, ir a `/login`, iniciar sesión → redirige a `/`.
+3. **Streaming token a token**: Escribir una pregunta y enviar. Los tokens deben aparecer progresivamente con el cursor naranja parpadeante; el botón debe estar deshabilitado durante el streaming.
+4. **Citations chips**: Al terminar el stream, `[1]` `[2]` deben convertirse en chips verdes clicables. Hacer clic en uno → panel `CitationsPanel` se abre por la derecha con la sección y fuente.
+5. **Multi-turno**: Sin cambiar de sesión, enviar una 2ª pregunta que implique contexto del turno anterior (ej. "¿Puedes ampliar lo anterior?"). La respuesta debe referenciar el contexto previo.
+6. **Persistencia de sesiones**: Refrescar la página (`F5`). El `SessionSelector` debe mostrar las sesiones anteriores. Hacer clic en una → el historial de mensajes se carga correctamente.
+7. **Nueva conversación**: Hacer clic en "+ Nueva conversación" → el área de chat se vacía; el siguiente envío crea una nueva sesión independiente.
+8. **Logout**: Hacer clic en "Salir" → redirige a `/login`; navegar manualmente a `/` → redirige de nuevo a `/login`.
+9. **Build de producción**: `docker compose --profile prod up -d frontend-prod`. Abrir `http://localhost:80`. Repetir flujo login → chat → streaming. El proxy `/api/*` debe funcionar transparentemente.
+10. **XSS** (opcional, si el corpus tiene HTML en algún chunk): Comprobar en DevTools (Elements) que ningún `<script>` ni handler `onerror`/`onclick` aparecen en el DOM dentro de las burbujas del asistente.
+
+---
+
+## Gate de revisión (Bloque D)
+
+- **Criterio (Spec 11):** flujo register→login→chat→multi-turno→logout en dev (`:5173`) y prod local (`:80`); stream token a token visible; chips `[N]` clicables abren CitationsPanel; sesiones persisten tras refresh; proxy `/api/*` resuelve en prod; chunks con HTML/script se renderizan como texto (XSS).
+- **Resultado:** **pendiente** (gate humano).
+  - ✓ TypeScript sin errores (`tsc --noEmit`).
+  - ✓ Build de producción limpio (311 módulos, 365 KB JS gzippeado a 115 KB).
+  - ✓ SSE `token` + `citations` verificado por curl contra stack real.
+  - ✓ `GET /chat/sessions` verificado por curl.
+  - ✓ `rehype-sanitize`: `<script>` y `on*` attrs fuera del schema.
+  - ✓ 147 tests backend verdes. Ruff limpio.
+  - ⏳ Flujo visual completo en navegador (checklist para Javi más arriba).
+
+---
+
+## Completado en sesiones anteriores (Bloque AU)
+
+- [x] `backend/migrations/versions/0003_create_users_add_fk.py` — tabla `users` (id UUID PK, email UNIQUE, hashed_password, is_active, is_superuser, is_verified) + `CREATE UNIQUE INDEX ix_users_email` + FK `chat_sessions.user_id → users.id ON DELETE SET NULL`. Migración ejecutada contra stack Docker real.
+- [x] `backend/app/auth/` — módulo completo (ADR-006): `models.py`, `schema.py`, `db.py`, `manager.py`, `router.py`. Dos cookies httpOnly: `access_token` (1 h) + `refresh_token` (7 d). `FastAPIUsers` + `current_active_user`. Rutas: `POST /auth/register|login|logout`, `GET /auth/me`, `POST /auth/refresh/login|logout`, `PATCH /auth/me`.
+- [x] `backend/app/config.py` — `jwt_access_ttl_s`, `jwt_refresh_ttl_s`; `model_validator` falla si `environment != "development"` y `jwt_secret == "change-me"`; propiedad `cookie_secure`.
+- [x] `backend/app/main.py` — `CORSMiddleware` + `auth_router`.
+- [x] `backend/app/chat/store.py` — `save_turn` con `pg_advisory_xact_lock` (carrera cerrada); `list_sessions` filtra por `user_id`.
+- [x] `backend/app/chat/router.py` — endpoints protegidos con `current_active_user`; scoping por usuario; `turn_idx` authoritative.
+- [x] `backend/tests/auth/test_auth.py` — 10 tests (guards 401, scoping 403/200, filtrado de lista).
+- [x] `frontend/src/api/auth.ts`, `hooks/useAuth.tsx`, `components/ProtectedRoute.tsx`, `pages/Login.tsx`, `pages/Register.tsx`, `App.tsx` — scaffold de auth completo.
+- [x] 145 tests verdes. Ruff limpio. TypeScript sin errores.
 
 ## Gate de revisión (Bloque AU)
 
-- **Criterio (ADR-006):** register/login/logout funcionan; `POST /chat/` da 401 sin cookie; un usuario no ve sesiones de otro (403); tests pasan; JWT_SECRET obligatorio en producción; cookie flags correctos.
 - **Resultado:** **pendiente** (gate humano).
-  - ✓ `POST /chat/` → 401 sin cookie (verificado live + test).
-  - ✓ Scoping: sesión de B → 403 con cookie de A (verificado live + test).
-  - ✓ Flujo completo register→login→me→logout→401 (verificado live).
-  - ✓ Set-Cookie: `HttpOnly; SameSite=lax; Max-Age=3600`; sin `Secure` en dev (prod tendrá `Secure`).
-  - ✓ CORS: `access-control-allow-credentials: true` + `access-control-allow-origin: http://localhost:5173`.
-  - ✓ JWT_SECRET: `ValidationError` al arrancar en production sin secreto configurado.
-  - ✓ `UserRead` no expone `hashed_password`.
-  - ✓ Carrera `next_turn_idx` cerrada con `pg_advisory_xact_lock`.
-  - ✓ 145 tests verdes. Ruff limpio. TypeScript sin errores.
 
 ---
 
@@ -103,7 +135,7 @@ Ninguno.
 - [x] `backend/app/chat/` — models, store, prompts, generator, router (specs 05/06/07).
 - [x] `backend/app/config.py` — `generate_timeout_s`, `history_window_n`.
 - [x] `backend/app/main.py` — incluye `chat_router`.
-- [x] 135 tests verdes al cierre de bloque CH (145 totales al cierre de AU tras añadir 10 tests de auth). Ruff limpio. Verificación live con stack Docker real.
+- [x] 135 tests verdes al cierre de bloque CH. Ruff limpio. Verificación live con stack Docker real.
 
 ## Gate de revisión (Bloque CH)
 
