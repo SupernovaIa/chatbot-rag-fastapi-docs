@@ -14,6 +14,19 @@ POST /auth/refresh/login   (refresh_backend)
 POST /auth/refresh/logout  (refresh_backend)
 GET  /auth/me
 PATCH /auth/me
+
+Admin routes (GET/PATCH/DELETE /auth/{id}) — access control
+------------------------------------------------------------
+``get_users_router`` also registers:
+  GET    /auth/{id}  — returns 403 unless current user owns the account or is superuser
+  PATCH  /auth/{id}  — returns 403 for non-superusers trying to modify another account
+  DELETE /auth/{id}  — returns 403 for non-superusers trying to delete another account
+
+FastAPI Users enforces this at the handler level: a normal active user can only
+read/modify/delete their *own* account; superuser flag is required to act on
+others. Verified live: PATCH and DELETE with a normal-user cookie against a
+different user's id → 403 Forbidden (not 200). No additional restriction needed
+here.
 """
 from __future__ import annotations
 
@@ -122,7 +135,10 @@ router.include_router(
     tags=["auth"],
 )
 
-# GET /auth/me  +  PATCH /auth/me  (+  admin /auth/{id} routes)
+# GET /auth/me  +  PATCH /auth/me
+# Also registers GET/PATCH/DELETE /auth/{id}: FastAPI Users restricts those to
+# the account owner or a superuser (normal users get 403 — verified live).
+# See module docstring for details.
 router.include_router(
     fastapi_users.get_users_router(UserRead, UserUpdate),
     prefix="/auth",

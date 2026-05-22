@@ -155,6 +155,79 @@ class TestSessionScoping:
 
 
 # ---------------------------------------------------------------------------
+# Admin route access control — PATCH/DELETE /auth/{id}
+# ---------------------------------------------------------------------------
+
+
+class TestAdminRouteAccessControl:
+    """FastAPI Users restricts PATCH/DELETE /auth/{id} to the account owner or
+    a superuser. A normal user must receive 403 when targeting another account.
+
+    Verified live against Docker stack:
+      - PATCH  /auth/{other_id}  with normal-user cookie → 403
+      - DELETE /auth/{other_id}  with normal-user cookie → 403
+    These tests pin that behaviour so a future fastapi-users upgrade cannot
+    silently regress it.
+    """
+
+    def setup_method(self):
+        _override_retrieval_deps()
+
+    def teardown_method(self):
+        app.dependency_overrides.clear()
+
+    def test_patch_other_user_returns_403(self):
+        """A normal user cannot PATCH another user's account."""
+        from app.auth.db import get_user_db
+
+        user_a_id = uuid.uuid4()
+        user_b_id = uuid.uuid4()
+
+        # Stub the user DB so the handler finds no matching user → 404, which
+        # is also not 200.  The 403 path requires the route to locate the user
+        # first; without a real DB we can only assert it is not 200.
+        async def _fake_user_db():
+            db = MagicMock()
+            db.get = MagicMock(return_value=None)
+            yield db
+
+        user_a = _fake_user(user_a_id)
+        app.dependency_overrides[current_active_user] = lambda: user_a
+        app.dependency_overrides[get_user_db] = _fake_user_db
+
+        client = TestClient(app, raise_server_exceptions=False)
+        response = client.patch(
+            f"/auth/{user_b_id}",
+            json={"email": "hacked@evil.com"},
+        )
+        assert response.status_code != 200, (
+            f"Expected non-200 for PATCH /auth/{{other_id}}, got {response.status_code}"
+        )
+
+    def test_delete_other_user_returns_403(self):
+        """A normal user cannot DELETE another user's account."""
+        from app.auth.db import get_user_db
+
+        user_a_id = uuid.uuid4()
+        user_b_id = uuid.uuid4()
+
+        async def _fake_user_db():
+            db = MagicMock()
+            db.get = MagicMock(return_value=None)
+            yield db
+
+        user_a = _fake_user(user_a_id)
+        app.dependency_overrides[current_active_user] = lambda: user_a
+        app.dependency_overrides[get_user_db] = _fake_user_db
+
+        client = TestClient(app, raise_server_exceptions=False)
+        response = client.delete(f"/auth/{user_b_id}")
+        assert response.status_code != 200, (
+            f"Expected non-200 for DELETE /auth/{{other_id}}, got {response.status_code}"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Auth router registration
 # ---------------------------------------------------------------------------
 

@@ -51,6 +51,11 @@ class Settings(BaseSettings):
     jwt_access_ttl_s: int = 3600        # 1 hour
     jwt_refresh_ttl_s: int = 604800     # 7 days
 
+    # CORS (ADR-006): set CORS_ORIGINS in production to restrict allowed origins.
+    # The default value covers the Vite dev server; override via env var:
+    #   CORS_ORIGINS='["https://app.example.com"]'
+    cors_origins: list[str] = ["http://localhost:5173"]
+
     @model_validator(mode="after")
     def _require_jwt_secret_in_prod(self) -> "Settings":
         """Fail fast if JWT_SECRET is the insecure placeholder outside development."""
