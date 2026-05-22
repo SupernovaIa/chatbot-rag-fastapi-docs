@@ -10,6 +10,99 @@ Próximas entradas por bloque.
 
 ---
 
+## [Bloque AU] — 2026-05-22
+
+### Añadido
+- `backend/migrations/versions/0003_create_users_add_fk.py` — tabla `users` (id UUID PK, email VARCHAR(320) UNIQUE, hashed_password, is_active, is_superuser, is_verified); `CREATE UNIQUE INDEX ix_users_email`; FK `chat_sessions.user_id → users.id ON DELETE SET NULL` (revision 0003, down_revision 0002). Migración ejecutada contra stack Docker real.
+- `backend/app/auth/` — módulo de autenticación completo (ADR-006):
+  - `models.py`: `User(SQLAlchemyBaseUserTableUUID, Base)` con `__tablename__ = "users"`.
+  - `schema.py`: `UserRead`, `UserCreate`, `UserUpdate` (FastAPI Users Pydantic schemas, UUID id).
+  - `db.py`: async engine singleton (`create_async_engine` + `async_sessionmaker`, psycopg v3) sobre el mismo `database_url`; `get_async_session`; `get_user_db → SQLAlchemyUserDatabase`. Coexiste con el engine sync de chat/retrieval.
+  - `manager.py`: `UserManager(UUIDIDMixin, BaseUserManager)` con `on_after_register`/`on_after_login`.
+  - `router.py`: `access_backend` (cookie `access_token`, httpOnly, SameSite=Lax, TTL 1 h) + `refresh_backend` (cookie `refresh_token`, TTL 7 d). `cookie_secure` según entorno. `FastAPIUsers` + `current_active_user`. Rutas: `POST /auth/register`, `POST /auth/login|logout`, `POST /auth/refresh/login|logout`, `GET /auth/me`, `PATCH /auth/me`.
+- `backend/tests/auth/test_auth.py` — 10 tests: guards 401 para los tres endpoints de chat sin cookie; scoping 403 (sesión ajena) y 200 (sesión propia); filtrado de lista por usuario; existencia de rutas auth.
+- `frontend/src/api/auth.ts` — `register`, `login` (form-encoded OAuth2 `username=`), `logout`, `getMe`; `credentials: "include"` en todas las llamadas.
+- `frontend/src/hooks/useAuth.tsx` — `AuthProvider` + `useAuth`; rehydrata desde cookie en mount; expone `user`, `loading`, `login`, `register`, `logout`.
+- `frontend/src/components/ProtectedRoute.tsx` — redirige a `/login` mientras carga o si `user === null`.
+- `frontend/src/pages/Login.tsx` — formulario email/password → `POST /auth/login` → redirect `/`.
+- `frontend/src/pages/Register.tsx` — formulario email/password/confirm → `POST /auth/register` + auto-login → redirect `/`.
+- `frontend/src/pages/ChatPage.tsx` — página protegida con cabecera (email + logout); placeholder de chat (bloque FE).
+
+### Cambiado
+- `backend/app/config.py` — `jwt_access_ttl_s = 3600` (1 h); `jwt_refresh_ttl_s = 604800` (7 d); `model_validator` que lanza `ValidationError` si `environment != "development"` y `jwt_secret == "change-me"`; propiedad `cookie_secure` (True si environment != development).
+- `backend/app/main.py` — `CORSMiddleware` (`allow_origins=["http://localhost:5173"]`, `allow_credentials=True`); incluye `auth_router`.
+- `backend/app/chat/store.py` — `get_or_create_session(session_id, user_id=None)` inserta `user_id`; `list_sessions(user_id=None)` filtra por usuario; **`save_turn` refactorizado**: adquiere `pg_advisory_xact_lock(hashtext(session_id))`, recomputa `turn_idx` dentro de la misma transacción bloqueada (cierra la carrera TOCTOU de bloque CH), devuelve el índice escrito; firma sin parámetro `turn_idx` externo.
+- `backend/app/chat/router.py` — tres endpoints protegidos con `Depends(current_active_user)`; POST /chat pasa `user_id=current_user.id`; GET /sessions filtra por `user_id`; GET /sessions/{id} devuelve 403 si `session.user_id != current_user.id`; usa `turn_idx_hint` para log pre-stream; `turn_idx` authoritative devuelto por `save_turn`.
+- `backend/pyproject.toml` + `uv.lock` — `fastapi-users[sqlalchemy]>=13.0` (instalada 15.0.5).
+- `backend/tests/chat/conftest.py` — `FakeChatHistoryStore`: `get_or_create_session(user_id=None)` guarda user_id; `list_sessions(user_id=None)` filtra; `save_turn` computa turn_idx internamente y lo devuelve.
+- `backend/tests/chat/test_router.py` — fixture `client` inyecta `current_active_user` con `fake_user` vía dependency override.
+- `backend/tests/chat/test_store.py` — `TestSaveTurn` actualizado a nueva firma (sin `turn_idx` explícito, verifica el retorno).
+- `frontend/src/App.tsx` — reescrito con `BrowserRouter` + `AuthProvider`; rutas públicas `/login|/register`; ruta protegida `/` bajo `ProtectedRoute`.
+- `frontend/package.json` — dep `react-router-dom ^7`.
+- `frontend/tsconfig.node.json` — `noEmit: false` (corrección: `composite: true` + `noEmit: true` es inválido para referenced projects).
+
+### Decisiones documentadas
+- **Async engine separado**: psycopg v3 soporta `create_async_engine` con el mismo `database_url`. El engine sync no se toca; el async sólo lo usa `app/auth/db.py`.
+- **`cookie_secure` según entorno**: dev → sin `Secure` (permite HTTP localhost); prod → `Secure` (HTTPS obligatorio). Controlado por `Settings.cookie_secure` derivado de `environment`.
+- **`__tablename__ = "users"`**: `SQLAlchemyBaseUserTableUUID` no fija nombre; SQLAlchemy defaultearía a `user`, reservada en Postgres.
+- **Login form-encoded**: FastAPI Users `CookieTransport` usa `OAuth2PasswordRequestForm` (campo `username`). Frontend envía `application/x-www-form-urlencoded`.
+- **JWT_SECRET obligatorio en producción**: `model_validator(mode="after")` valida `jwt_secret != "change-me"` cuando `environment != "development"`. Fallo al arrancar, no en runtime.
+- **Carrera `next_turn_idx` cerrada**: `save_turn` adquiere advisory lock al inicio de la transacción → lee MAX → inserta, todo atómico. `next_turn_idx` público se mantiene para estimaciones pre-stream (sin lock). UNIQUE constraint sigue como last-resort guard.
+
+### Notas
+- **145 tests, todos verdes. Ruff limpio. TypeScript sin errores** (`npx tsc --noEmit`).
+- **Verificación live completa** contra stack Docker real:
+  - Register (201) → Login (204, cookie `HttpOnly; Max-Age=3600; SameSite=lax`) → GET /me (200, sin `hashed_password`) → GET /chat/sessions (200, filtrado por usuario) → Logout (204, `Max-Age=0`) → POST /chat post-logout (401). CORS: `access-control-allow-credentials: true`.
+  - Scoping: `GET /chat/sessions/<sesión de B>` con cookie de A → 403.
+  - Refresh cookie: `refresh_token; Max-Age=604800; HttpOnly; SameSite=lax`.
+  - JWT_SECRET en production sin variable → `ValidationError` al cargar Settings.
+  - `pg_advisory_xact_lock` disponible y funcional en Postgres 17.
+
+---
+
+## [Bloque AU] — 2026-05-22
+
+### Añadido
+- `backend/migrations/versions/0003_create_users_add_fk.py` — tabla `users` (id UUID PK, email UNIQUE, hashed_password, is_active, is_superuser, is_verified) + `CREATE UNIQUE INDEX ix_users_email`. FK `chat_sessions.user_id → users.id ON DELETE SET NULL`.
+- `backend/app/auth/` — módulo de autenticación completo (ADR-006):
+  - `models.py`: `User(SQLAlchemyBaseUserTableUUID, Base)` con `__tablename__ = "users"`.
+  - `schema.py`: `UserRead`, `UserCreate`, `UserUpdate` (FastAPI Users Pydantic schemas, UUID id).
+  - `db.py`: async engine singleton (`create_async_engine` + `async_sessionmaker`) sobre el mismo `database_url`; `get_async_session`; `get_user_db → SQLAlchemyUserDatabase`. Coexiste con el engine sync de chat/retrieval.
+  - `manager.py`: `UserManager(UUIDIDMixin, BaseUserManager)` con hooks `on_after_register` / `on_after_login`. Secrets leídos de `get_settings()` cached.
+  - `router.py`: dos `AuthenticationBackend` — `access_backend` (cookie `access_token`, httpOnly, SameSite=Lax, TTL 1 h) + `refresh_backend` (cookie `refresh_token`, httpOnly, SameSite=Lax, TTL 7 d). `FastAPIUsers` instance + `current_active_user`. Rutas: `POST /auth/register`, `POST /auth/login|logout`, `POST /auth/refresh/login|logout`, `GET /auth/me`, `PATCH /auth/me`.
+- `backend/tests/auth/test_auth.py` — 10 tests: guards 401 para `POST /chat/`, `GET /chat/sessions`, `GET /chat/sessions/{id}`; scoping 403 (sesión ajena) y 200 (sesión propia); filtrado lista; existencia de rutas auth.
+- `frontend/src/api/auth.ts` — funciones `register`, `login` (form-encoded OAuth2 `username=`), `logout`, `getMe`; `credentials: "include"` en todas las llamadas.
+- `frontend/src/hooks/useAuth.tsx` — `AuthProvider` + `useAuth`; rehydrata desde cookie en mount (`getMe`); expone `user`, `loading`, `login`, `register`, `logout`.
+- `frontend/src/components/ProtectedRoute.tsx` — redirige a `/login` mientras carga o si `user === null`.
+- `frontend/src/pages/Login.tsx` — formulario email/password, `POST /auth/login`, redirect `/`.
+- `frontend/src/pages/Register.tsx` — formulario email/password/confirm, `POST /auth/register` + auto-login, redirect `/`.
+- `frontend/src/pages/ChatPage.tsx` — ruta protegida con cabecera (email del usuario + botón logout); placeholder del chat (bloque FE).
+
+### Cambiado
+- `backend/app/config.py` — añadidos `jwt_access_ttl_s = 3600` (1 h) y `jwt_refresh_ttl_s = 604800` (7 d).
+- `backend/app/main.py` — `CORSMiddleware` (`allow_origins=["http://localhost:5173"]`, `allow_credentials=True`, `allow_methods=["*"]`, `allow_headers=["*"]`); incluye `auth_router`.
+- `backend/app/chat/store.py` — `get_or_create_session(session_id, user_id=None)` inserta `user_id` en la fila nueva; `list_sessions(user_id=None)` filtra por `user_id` cuando se pasa.
+- `backend/app/chat/router.py` — `POST /chat/`, `GET /chat/sessions`, `GET /chat/sessions/{id}` protegidos con `current_user: User = Depends(current_active_user)`. `POST /chat/` pasa `user_id=current_user.id`. `GET /chat/sessions` filtra por `user_id`. `GET /chat/sessions/{id}` devuelve 403 si `session.user_id != current_user.id`.
+- `backend/pyproject.toml` + `uv.lock` — dep `fastapi-users[sqlalchemy]>=13.0` (instalada 15.0.5).
+- `backend/tests/chat/conftest.py` — `FakeChatHistoryStore.get_or_create_session(user_id=None)` guarda `user_id`; `FakeChatHistoryStore.list_sessions(user_id=None)` filtra.
+- `backend/tests/chat/test_router.py` — fixture `client` inyecta `current_active_user` con `fake_user` (MagicMock con UUID).
+- `frontend/src/App.tsx` — reescrito con `BrowserRouter` + `AuthProvider`; rutas públicas `/login` `/register`; ruta protegida `/` bajo `ProtectedRoute`.
+- `frontend/package.json` — dep `react-router-dom ^7`.
+- `frontend/tsconfig.node.json` — `noEmit: false` (corrección: `composite: true` + `noEmit: true` no es válido para referenced projects).
+
+### Decisiones documentadas
+- **Async engine separado para FastAPI Users**: psycopg v3 soporta `create_async_engine` con el mismo prefijo `postgresql+psycopg://`. El engine sync de chat/retrieval no se toca; el async solo lo usa `app/auth/db.py`.
+- **Dos cookies httpOnly (ADR-006)**: `access_token` (1 h) para requests API + `refresh_token` (7 d) para renovar sin re-login. Ambas con SameSite=Lax.
+- **`__tablename__ = "users"`**: `SQLAlchemyBaseUserTableUUID` no fija nombre; SQLAlchemy defaultearía a `user` (palabra reservada en Postgres). Override explícito.
+- **Login form-encoded**: FastAPI Users `get_auth_router` con `CookieTransport` usa `OAuth2PasswordRequestForm` (campo `username`). Frontend envía `application/x-www-form-urlencoded`.
+- **Stubs de retrieval en tests de guard 401**: FastAPI resuelve todas las deps antes de rechazar por auth; sin stubs de Gemini el test daría 500. Se añaden `_setup_retrieval_stubs()` en los tests de guard.
+
+### Notas
+- **145 tests, todos verdes**. Ruff limpio. TypeScript `noEmit` limpio.
+- Verificación live (register/login/logout por UI contra stack Docker): pendiente de gate humano.
+
+---
+
 ## [Bloque CH] — 2026-05-21
 
 ### Añadido
