@@ -7,7 +7,7 @@
 **Bloque:** D (Frontend chat completo)
 **Estado:** gate_pending
 **Fecha apertura:** 2026-05-22 (sesión 8)
-**Última actualización:** 2026-05-22 (cierre de sesión 8)
+**Última actualización:** 2026-05-22 (cierre de sesión 8 — review fixes)
 
 > Bloque AU completado ✓ (tag `06-block-AU` pendiente de merge humano). Bloque CH completado ✓ (tag `05-block-CH` pendiente de merge humano). Bloque R completado ✓ (tag `04-block-R` pendiente de merge humano). Bloque G completado ✓ (tag `03-block-G` · PR #5). Bloque B completado ✓ (tag `02-block-B`). El histórico se conserva más abajo.
 
@@ -36,11 +36,15 @@ Ninguno. Bloque completo, pendiente de gate humano.
 - [x] `frontend/src/components/Message.tsx` — burbujas usuario (derecha, `#eef6f3`) y asistente (izquierda, transparente); markdown con `react-markdown` + `remark-gfm` + `rehype-sanitize`; cuando llegan citations, `[N]` se convierten en `.citation-chip` clicables con `renderWithCitationChips`; cursor de streaming animado; XSS: `<script>` y handlers `on*` eliminados por `rehype-sanitize`.
 - [x] `frontend/src/components/CitationsPanel.tsx` — panel deslizante fijo (derecha); muestra `section`, `source` (enlace) y `chunk_hash` truncado; lista de todas las citas con resaltado de la activa; cierre con botón ✕ o tecla Escape; backdrop click-to-close; `aria-label` + focus en apertura.
 - [x] `frontend/src/components/SessionSelector.tsx` — sidebar izquierda; carga `GET /chat/sessions` en mount y ante `refreshTrigger`; ordena por `updated_at` desc; botón "Nueva conversación"; sesión activa resaltada; manejo de error y estado vacío.
-- [x] `frontend/src/pages/ChatPage.tsx` — reescritura completa: header con badge RAG + email + botón salir; layout sidebar + chat-area; integra `SessionSelector`, `MessageList`, `ChatInput`, `CitationsPanel`; gestión de `currentSessionId` con `crypto.randomUUID()` para nuevas sesiones (idempotente en backend); `refreshTrigger` post-turno; `loadSession` reconstruye mensajes desde historial; escucha `select-citation` custom event; indicador de error SSE.
+- [x] `frontend/src/pages/ChatPage.tsx` — reescritura completa: header con badge RAG + email + botón salir; layout sidebar + chat-area; integra `SessionSelector`, `MessageList`, `ChatInput`, `CitationsPanel`; gestión de `currentSessionId` con `crypto.randomUUID()` para nuevas sesiones (idempotente en backend); `refreshTrigger` post-turno; `loadSession` reconstruye mensajes desde historial; indicador de error SSE.
 - [x] `frontend/nginx.conf` — config nginx: SPA fallback `try_files`; `location /api/` proxy a `http://backend:8000/`; `proxy_buffering off` + `proxy_http_version 1.1` para SSE token-a-token.
 - [x] `frontend/Dockerfile.prod` — multi-stage: `node:22-alpine` build con `VITE_API_URL=/api`; `nginx:1.27-alpine` serve; `dist/` copiado al webroot de nginx.
 - [x] `docker-compose.yml` — servicio `frontend-prod` (puerto 80, `Dockerfile.prod`, `profiles: [prod]`).
 - [x] `frontend/package.json` + `package-lock.json` — nuevas deps: `react-markdown@^9.1.0`, `rehype-sanitize@^6.0.0`, `remark-gfm@^4.0.1`.
+- [x] **Fix review #1 — citations scoping por mensaje**: `onCitationClick(idx, citations)` ahora lleva el array `citations` del propio mensaje; `renderWithCitationChips` lo pasa hacia arriba; `ChatPage.handleCitationClick` lo usa directamente. Eliminados `findLastCitations` y el `useEffect` de sincronización de `activeCitations`. Verificado en vivo con conversación de 2 turnos (sources distintos por turno).
+- [x] **Fix review #2 — eliminar DOM event bus**: `CitationsPanel` recibe `onSelectIndex: (i: number) => void` como prop y lo llama directamente; eliminado `document.dispatchEvent(CustomEvent)`. `ChatPage` pasa `onSelectIndex={setSelectedCitationIndex}` y elimina el `document.addEventListener("select-citation", ...)`.
+- [x] `Makefile` — `make dev` / `make prod` / `make down` como atajos de `docker compose`.
+- [x] Issue #16 abierto con los findings 🟡🟢 del review (dead ref, double refresh, SyntaxError frágil, silent error, dots blink, type cast, reader cleanup, gzip).
 
 ## Decisiones tomadas en este bloque (D)
 
@@ -49,7 +53,9 @@ Ninguno. Bloque completo, pendiente de gate humano.
 - **`rehype-sanitize` con schema por defecto**: El schema por defecto no incluye `<script>` ni atributos `on*` en ningún elemento. Verificado programáticamente. Protege contra XSS desde contenido de chunks.
 - **`[N]` chips via split**: La función `renderWithCitationChips` divide el texto en `[N]` y fragmentos de markdown. Cada fragmento va a una instancia de `ReactMarkdown` con `p → <>{children}</>` para evitar p anidados. No requiere plugins remark/rehype extra.
 - **`refreshTrigger` para SessionSelector**: Después de cada `onCitations` y `onDone`, se incrementa un contador que pasa como prop a `SessionSelector`. Éste tiene un `useEffect([refreshTrigger])` que re-fetch las sesiones. Simple y sin contexto global.
-- **`frontend-prod` como perfil separado**: El servicio dev (`frontend`) queda sin perfil (arranca por defecto). El servicio prod (`frontend-prod`) tiene `profiles: [prod]` para no mezclarse. Se activa con `docker compose --profile prod up`.
+- **`frontend-prod` como perfil separado**: El servicio dev (`frontend`) queda sin perfil (arranca por defecto). El servicio prod (`frontend-prod`) tiene `profiles: [prod]` para no mezclarse. Se activa con `docker compose --profile prod up` o `make prod`.
+- **Citations scoping por mensaje (fix #1)**: `onCitationClick` lleva `(idx, citations)` — el array de citas del mensaje clickado, no una búsqueda global. `ChatPage` usa ese array directamente para abrir `CitationsPanel`.
+- **Props React en lugar de DOM events (fix #2)**: `CitationsPanel.onSelectIndex` prop sustituye al `CustomEvent("select-citation")`. Elimina el acoplamiento implícito entre componentes hermanos a través del DOM.
 
 ## Blockers
 

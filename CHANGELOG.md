@@ -12,9 +12,14 @@ Próximas entradas por bloque.
 
 ## [Bloque D — Frontend chat completo] — 2026-05-22
 
+### Corregido (review fixes)
+- **Citations scoping por mensaje** (`Message.tsx`, `MessageList.tsx`, `ChatPage.tsx`): la firma de `onCitationClick` pasa ahora `(index, citations)` — el array de citas del mensaje pulsado. `ChatPage.handleCitationClick` usa ese array directamente para abrir `CitationsPanel`; eliminados `findLastCitations` y el `useEffect` de sincronización. En conversaciones multi-turno, cada chip `[N]` abre las fuentes de su propio turno. Verificado en vivo con 2 turnos con sources distintos.
+- **DOM event bus eliminado** (`CitationsPanel.tsx`, `ChatPage.tsx`): la navegación entre citas dentro del panel usaba `document.dispatchEvent(CustomEvent)` con `document.addEventListener` en el padre — anti-patrón React. Reemplazado por la prop `onSelectIndex: (i: number) => void` que `ChatPage` pasa como `setSelectedCitationIndex`.
+
 ### Añadido
 - `specs/11-frontend-chat.md` — spec del bloque D (frontend de chat): hook SSE, componentes, CitationsPanel, SessionSelector, build prod nginx, XSS, checklist de verificación.
 - `frontend/src/index.css` — design system completo: variables CSS (`--bg`, `--fg`, `--accent`, `--highlight`, `--muted`, `--green`, `--danger`, `--orange`); familia tipográfica Poppins (UI) y JetBrains Mono (código); estilos de prosa `.prose` (pre, code, blockquote, table, listas, headings); clase `.citation-chip` (verde `--highlight`, monoespaciada); cursor `.streaming-cursor` (naranja parpadeante); `@keyframes spin` para spinner de envío.
+- `Makefile` — `make dev` (Vite :5173), `make prod` (nginx :80 vía perfil `prod`), `make down`.
 - `frontend/src/api/chat.ts` — tipos `Citation`, `SessionOut`, `MessageOut`, `SessionDetailOut`; funciones `listSessions()` (`GET /chat/sessions`) y `getSession(id)` (`GET /chat/sessions/{id}`); `credentials: "include"` en todas las llamadas.
 - `frontend/src/hooks/useChatStream.ts` — hook `useChatStream`: consume `POST /chat/` como SSE vía `fetch` + `ReadableStream`; parsea líneas `data: <json>` del formato sse_starlette; gestiona `AbortController` (cancela al desmontar o al iniciar nueva petición); callbacks `onToken(text)`, `onCitations(citations)`, `onDone()`; expone `streaming`, `error`, `sendMessage`, `cancel`.
 - `frontend/src/components/ChatInput.tsx` — textarea + botón enviar con icono SVG; `Enter` envía, `Shift+Enter` inserta salto; deshabilitado (aria-disabled) durante streaming; spinner animado en botón; label `sr-only`; focus visible en todos los interactivos.
