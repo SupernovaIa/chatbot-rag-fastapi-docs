@@ -4,24 +4,24 @@
 
 ## Bloque actual
 
-**Bloque:** D (Frontend chat completo)
-**Estado:** gate_pending
-**Fecha apertura:** 2026-05-22 (sesión 8)
-**Última actualización:** 2026-05-22 (cierre de sesión 8 — review fixes)
+**Bloque:** E (Evaluación + CI con gate del PR)
+**Estado:** in_progress
+**Fecha apertura:** 2026-05-23 (sesión 9)
+**Última actualización:** 2026-05-23 (apertura de sesión 9)
 
-> Bloque AU completado ✓ (tag `06-block-AU` pendiente de merge humano). Bloque CH completado ✓ (tag `05-block-CH` pendiente de merge humano). Bloque R completado ✓ (tag `04-block-R` pendiente de merge humano). Bloque G completado ✓ (tag `03-block-G` · PR #5). Bloque B completado ✓ (tag `02-block-B`). El histórico se conserva más abajo.
+> Bloque D completado ✓ (tag `07-block-D` pendiente de merge humano). Bloque AU completado ✓ (tag `06-block-AU` pendiente de merge humano). Bloque CH completado ✓ (tag `05-block-CH` pendiente de merge humano). Bloque R completado ✓ (tag `04-block-R` pendiente de merge humano). Bloque G completado ✓ (tag `03-block-G` · PR #5). Bloque B completado ✓ (tag `02-block-B`). El histórico se conserva más abajo.
 
 ## Objetivo del bloque
 
-Frontend de chat completo (Spec 11 / ADR-009): `useChatStream` hook (SSE POST, eventos `token`/`citations`/`error`, cancelación en desmontaje); componentes `ChatInput`, `MessageList`, `Message` (markdown + chips `[N]` clicables, rehype-sanitize XSS), `CitationsPanel`, `SessionSelector`; `Dockerfile.prod` nginx con proxy `/api/*`; perfil `prod` en `docker-compose.yml`; estilo según `docs/design-system.md`.
+Evaluación automática del pipeline RAG (Spec 10 / ADR-007): módulo `backend/app/evals/` (loader del gold, runner del pipeline, métricas deterministas recall@5/MRR, juez RAGAS con Gemini Pro, report markdown vs baseline, `thresholds.yaml`); tests Pytest parametrizados sobre el gold con subset `ci_subset`; conectar el slash `/eval`; workflows `eval.yml` (gate del PR) y `eval-nightly.yml` (suite completa). Gate humano entre el código y el cableado de CI: medir baseline, acordar estrategia del gate y validar el juez.
 
 ## Próxima acción concreta
 
-Al reanudar: gate humano. Si pasa, mergear la PR de `feat/chat-frontend` a `main` (squash) y crear el tag `07-block-D`; si no, documentar el fallo y seguir en el bloque.
+Al reanudar: completar el **gate humano** documentado abajo (medir baseline sobre `main`, acordar estrategia del gate, spot-check del juez), fijar los thresholds definitivos y luego activar branch protection + secret `GOOGLE_API_KEY`.
 
 ## Pendientes en este bloque
 
-Ninguno. Bloque completo, pendiente de gate humano.
+- [ ] **Gate humano (requiere stack + `GOOGLE_API_KEY`):** medir baseline con subset reducido (~8-10 ej.) → `baseline_metrics.json`; acordar estrategia del gate (floor absoluto vs floor + regresión relativa); spot-check humano del juez (~8 ej.). Solo entonces fijar los valores definitivos en `thresholds.yaml` y activar branch protection.
 
 ## Completado en esta sesión (Bloque D, sesión 8)
 
