@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     # Models. Tier is fixed, the ID is anchored with a date (ADR-001).
     # Anchored 2026-05-21: Gemini 3.5 Flash (generation, reranker, rewriter).
     gemini_flash_model: str = "gemini-3.5-flash"
+    # Gemini 3 Pro: evals judge only (RAGAS, ADR-007). A different model than the
+    # generator (Flash) to reduce self-approval bias; same provider (partial).
+    gemini_pro_model: str = "gemini-3-pro"
 
     # Retrieval tuning (specs 02/03).
     retrieval_candidates: int = 20  # top-K candidates from hybrid search
@@ -42,6 +45,12 @@ class Settings(BaseSettings):
     # Chat / generation (specs 05/06/07).
     generate_timeout_s: float = 60.0  # max wall-clock time for one generation
     history_window_n: int = 5  # sliding window: last N complete turns (ADR-005)
+
+    # Evals (spec 10 / ADR-007). The judge (Gemini Pro) free tier is tight, so
+    # the runner throttles RAGAS concurrency and backs off on rate limits.
+    evals_judge_max_workers: int = 2  # RAGAS RunConfig concurrency cap
+    evals_judge_timeout_s: float = 120.0  # per-metric judge call timeout
+    evals_gen_timeout_s: float = 60.0  # answer-generation timeout per example
 
     # Secrets (no defaults in production; placeholders ease local boot)
     google_api_key: str = ""

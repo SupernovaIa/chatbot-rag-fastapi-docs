@@ -6,7 +6,28 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y 
 
 ## [No publicado]
 
-Próximas entradas por bloque.
+### Añadido (Bloque E — Evaluación + CI con gate del PR)
+- `backend/app/evals/` — módulo de evaluación (spec 10 / ADR-007):
+  - `loader.py` — carga `gold.jsonl` (40 ej.) en `GoldExample` (normaliza claves `_es` → modelo inglés); `CI_SUBSET_IDS` (15 ej. representativos, cubre los 5 tipos) y `select_subset` (falla si falta un id).
+  - `metrics.py` — métricas deterministas sin LLM: `recall_at_k`, `reciprocal_rank` (match por `(source, section)`), `is_abstention` (detección de rechazo para `no_se`).
+  - `runner.py` — `run_evals`: retrieve → generate por ejemplo, agrega recall@5/MRR (answerable), abstention_rate (`no_se`) y las 4 métricas RAGAS (juez, answerable). Captura errores por-ejemplo sin abortar.
+  - `judge.py` — `RagasGeminiJudge`: RAGAS con Gemini Pro como juez (faithfulness, answer_relevancy, context_precision, context_recall); `RunConfig` con `max_workers` para el free tier; import de `ragas` diferido; NaNs excluidos de la media.
+  - `generator.py` — `GeminiAnswerGenerator`: respuesta completa (no streaming) con Gemini Flash, reusando `build_prompt`.
+  - `ports.py` — `AnswerGeneratorPort`, `JudgePort` (ADR-011, mockeables en tests).
+  - `report.py` — `evaluate_gate` (floor absoluto + regresión relativa opcional vs baseline de `main`), `render_markdown` (tabla del comentario del PR), `report_to_baseline`.
+  - `thresholds.yaml` — floors orientativos (provisionales hasta el gate humano) + config de regresión.
+  - `telemetry.py` — `record_eval_run`: span Phoenix `evals.run` con métricas, subset, commit/corpus SHA (dashboard de Calidad).
+  - `cli.py` — `python -m app.evals.cli` (`--subset ci_subset|full`, `--baseline`, `--update-baseline`, `--markdown`, `--json`, `--no-judge`); exit 0/1/2.
+- `backend/tests/evals/` — 71 tests (loader, métricas, runner con fakes, gate/report, pipeline parametrizado sobre el gold con marker `ci_subset`).
+- `.github/workflows/eval.yml` — gate del PR: Postgres + Azurite como services, indexa el corpus, corre el subset `ci_subset`, comenta el PR con la tabla y bloquea el merge si falla. Guard que se salta limpio si falta `GOOGLE_API_KEY`.
+- `.github/workflows/eval-nightly.yml` — suite completa (40 ej.) en `schedule` + `workflow_dispatch`; refresca `baseline_metrics.json` en `main`.
+
+### Cambiado (Bloque E)
+- `backend/app/config.py` — `gemini_pro_model` (juez), `evals_judge_max_workers`, `evals_judge_timeout_s`, `evals_gen_timeout_s`.
+- `backend/pyproject.toml` — deps `ragas>=0.2,<0.3` y `pyyaml`; markers `ci_subset` y `evals_live`.
+- `.claude/commands/eval.md` — el slash `/eval` ahora invoca el runner (`app.evals.cli`).
+
+> **Gate humano pendiente** antes de cablear CI a producción: medir baseline sobre `main`, acordar la estrategia del gate y validar el juez (ver SESSION.md). Los thresholds de `thresholds.yaml` son provisionales hasta entonces.
 
 ---
 

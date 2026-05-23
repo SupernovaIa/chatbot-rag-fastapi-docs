@@ -1,0 +1,120 @@
+name: Evals gate
+
+# PR gate (spec 10 / ADR-007): index the pinned corpus, run the representative
+# gold subset through the pipeline with RAGAS (Gemini Pro judge), post the
+# metrics table as a PR comment and block the merge if the gate fails.
+#
+# Free-tier discipline: only the ci_subset (~15 examples) runs here; the full
+# 40-example suite runs nightly (eval-nightly.yml). Requires the GOOGLE_API_KEY
+# secret. Inert until branch protection is enabled and the secret is set
+# (see SESSION.md → "Gate humano").
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: evals-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  evals:
+    name: Eval gate (ci_subset)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/chatbot_rag
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      # Well-known public Azurite development connection string.
+      AZURE_STORAGE_CONNECTION_STRING: "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://127.0.0.1:10000/devstoreaccount1;"
+      # Phoenix is not available in CI; spans become no-ops.
+      DISABLE_TRACING: "1"
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: chatbot_rag
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d chatbot_rag"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      azurite:
+        image: mcr.microsoft.com/azure-storage/azurite:latest
+        ports:
+          - 10000:10000
+          - 10001:10001
+          - 10002:10002
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Guard — skip cleanly if GOOGLE_API_KEY is not configured
+        id: guard
+        run: |
+          if [ -z "${GOOGLE_API_KEY}" ]; then
+            echo "GOOGLE_API_KEY secret not set — eval gate skipped." >> "$GITHUB_STEP_SUMMARY"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install uv
+        if: steps.guard.outputs.skip == 'false'
+        uses: astral-sh/setup-uv@v5
+
+      - name: Sync dependencies
+        if: steps.guard.outputs.skip == 'false'
+        working-directory: backend
+        run: uv sync
+
+      - name: Upload corpus to Azurite
+        if: steps.guard.outputs.skip == 'false'
+        working-directory: backend
+        run: uv run python ../scripts/upload_corpus.py
+
+      - name: Apply migrations
+        if: steps.guard.outputs.skip == 'false'
+        working-directory: backend
+        run: uv run alembic upgrade head
+
+      - name: Index corpus into pgvector
+        if: steps.guard.outputs.skip == 'false'
+        working-directory: backend
+        run: uv run python ../scripts/index_corpus.py
+
+      - name: Run eval gate (ci_subset)
+        id: eval
+        if: steps.guard.outputs.skip == 'false'
+        working-directory: backend
+        run: |
+          uv run python -m app.evals.cli \
+            --subset ci_subset \
+            --baseline ../baseline_metrics.json \
+            --markdown ../eval_report.md \
+            --json ../eval_metrics.json
+
+      - name: Comment metrics on the PR
+        if: always() && steps.guard.outputs.skip == 'false' && hashFiles('eval_report.md') != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('eval_report.md', 'utf8');
+            const marker = '<!-- evals-gate -->';
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const comments = await github.rest.issues.listComments({ owner, repo, issue_number });
+            const existing = comments.data.find(c => c.body.includes(marker));
+            const payload = `${marker}\n${body}`;
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body: payload });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body: payload });
+            }

@@ -1,0 +1,105 @@
+name: Evals nightly
+
+# Full suite (spec 10): all 40 gold examples through the pipeline + RAGAS judge.
+# Runs on a nightly schedule and on demand. Refreshes baseline_metrics.json on
+# main so the PR gate (eval.yml) can compare against an up-to-date baseline.
+#
+# Requires the GOOGLE_API_KEY secret. The schedule is inert on forks; commit of
+# the refreshed baseline needs contents:write.
+
+on:
+  schedule:
+    - cron: "0 3 * * *"  # 03:00 UTC daily
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  evals-full:
+    name: Full eval suite (40)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/chatbot_rag
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      AZURE_STORAGE_CONNECTION_STRING: "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://127.0.0.1:10000/devstoreaccount1;"
+      DISABLE_TRACING: "1"
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: chatbot_rag
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d chatbot_rag"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      azurite:
+        image: mcr.microsoft.com/azure-storage/azurite:latest
+        ports:
+          - 10000:10000
+          - 10001:10001
+          - 10002:10002
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fail if GOOGLE_API_KEY is missing
+        run: |
+          if [ -z "${GOOGLE_API_KEY}" ]; then
+            echo "::error::GOOGLE_API_KEY secret is required for the nightly eval suite."
+            exit 1
+          fi
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Sync dependencies
+        working-directory: backend
+        run: uv sync
+
+      - name: Upload corpus to Azurite
+        working-directory: backend
+        run: uv run python ../scripts/upload_corpus.py
+
+      - name: Apply migrations
+        working-directory: backend
+        run: uv run alembic upgrade head
+
+      - name: Index corpus into pgvector
+        working-directory: backend
+        run: uv run python ../scripts/index_corpus.py
+
+      - name: Run full eval suite and refresh baseline
+        working-directory: backend
+        run: |
+          uv run python -m app.evals.cli \
+            --subset full \
+            --update-baseline ../baseline_metrics.json \
+            --markdown ../eval_report.md
+
+      - name: Upload eval report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-report
+          path: |
+            eval_report.md
+            baseline_metrics.json
+
+      - name: Commit refreshed baseline to main
+        if: github.ref == 'refs/heads/main'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if ! git diff --quiet -- baseline_metrics.json; then
+            git add baseline_metrics.json
+            git commit -m "chore(evals): refresh main baseline [skip ci]"
+            git push
+          else
+            echo "Baseline unchanged — nothing to commit."
+          fi

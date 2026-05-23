@@ -23,6 +23,46 @@ Al reanudar: completar el **gate humano** documentado abajo (medir baseline sobr
 
 - [ ] **Gate humano (requiere stack + `GOOGLE_API_KEY`):** medir baseline con subset reducido (~8-10 ej.) → `baseline_metrics.json`; acordar estrategia del gate (floor absoluto vs floor + regresión relativa); spot-check humano del juez (~8 ej.). Solo entonces fijar los valores definitivos en `thresholds.yaml` y activar branch protection.
 
+## Completado en esta sesión (Bloque E, sesión 9)
+
+- [x] Primer commit de rama: `specs/10-evals-ci-gate.md` committeado; D marcado como completado, E como in_progress.
+- [x] `backend/app/evals/loader.py` — `GoldExample`/`GoldChunk`, `load_gold`, `CI_SUBSET_IDS` (15 ej., cubre los 5 tipos), `select_subset` (falla si falta id).
+- [x] `backend/app/evals/metrics.py` — `recall_at_k`, `reciprocal_rank` (match `(source, section)`), `is_abstention` (rechazo `no_se`), `mean`.
+- [x] `backend/app/evals/models.py` — `ExampleRun`, `MetricScores`, `RunReport`.
+- [x] `backend/app/evals/ports.py` — `AnswerGeneratorPort`, `JudgePort` (mockeables).
+- [x] `backend/app/evals/generator.py` — `GeminiAnswerGenerator` (Flash, no streaming, reusa `build_prompt`).
+- [x] `backend/app/evals/judge.py` — `RagasGeminiJudge` (Gemini Pro, RAGAS, `RunConfig` free-tier, import diferido, NaN-safe).
+- [x] `backend/app/evals/runner.py` — `run_evals` orquesta retrieve→generate, agrega métricas, captura errores por-ejemplo.
+- [x] `backend/app/evals/report.py` — `evaluate_gate` (floor + regresión relativa), `render_markdown`, `report_to_baseline`.
+- [x] `backend/app/evals/thresholds.yaml` — floors provisionales + config de regresión.
+- [x] `backend/app/evals/telemetry.py` — span Phoenix `evals.run` (métricas, subset, commit/corpus SHA).
+- [x] `backend/app/evals/cli.py` — `python -m app.evals.cli` (subset/baseline/markdown/json/no-judge); exit 0/1/2.
+- [x] `backend/app/config.py` — `gemini_pro_model`, `evals_judge_max_workers`, `evals_judge_timeout_s`, `evals_gen_timeout_s`.
+- [x] `backend/pyproject.toml` — `ragas>=0.2,<0.3`, `pyyaml`; markers `ci_subset`/`evals_live`. `uv.lock` actualizado.
+- [x] `backend/tests/evals/` — 71 tests (loader, metrics, runner con fakes, report/gate, pipeline parametrizado con `ci_subset`).
+- [x] `.claude/commands/eval.md` — `/eval` cableado al runner.
+- [x] `.github/workflows/eval.yml` — gate del PR (Postgres + Azurite services, indexa corpus, subset `ci_subset`, comenta el PR, bloquea merge; guard si falta el secret).
+- [x] `.github/workflows/eval-nightly.yml` — suite completa nocturna + `workflow_dispatch`; refresca `baseline_metrics.json` en `main`.
+
+## Verificación pre-cierre (sesión 9, Bloque E)
+
+- `cd backend && uv run ruff check .` → `All checks passed!` ✓
+- `cd backend && uv run pytest -q` → `218 passed` (147 previos + 71 nuevos de evals) ✓
+- `uv run pytest tests/evals/test_pipeline.py -m ci_subset --co` → 14 tests, cubren los 5 tipos ✓
+- `python -m app.evals.cli --help` → OK ✓
+- YAML de ambos workflows + `thresholds.yaml` parsean ✓
+
+> **Nota sobre lo NO verificable aquí:** el flujo live (indexar + retrieve + juez Gemini Pro) y la medición del baseline requieren stack Docker + `GOOGLE_API_KEY`. Es justo el contenido del gate humano de la spec. Pendiente para Javi.
+
+## Gate de revisión (Bloque E)
+
+- **Criterio (Spec 10):** runner + tests primero; medir baseline; acordar estrategia del gate; validar el juez; solo entonces cablear CI a producción (branch protection + secret).
+- **Resultado:** **pendiente** (gate humano). Código, tests y workflows listos. Pasos humanos:
+  1. `docker compose up -d` + `/index`; correr `docker compose exec backend python -m app.evals.cli --subset ci_subset --no-judge` para validar retrieval, y luego sin `--no-judge` con un subset reducido para generar `baseline_metrics.json` (`--update-baseline`).
+  2. Spot-check humano de ~8 ejemplos del juez (faithfulness/relevancy) antes de confiarle el gate (ADR-007).
+  3. Acordar la estrategia (floor absoluto vs floor + regresión) y fijar los valores definitivos en `thresholds.yaml`.
+  4. Añadir el secret `GOOGLE_API_KEY` en el repo y activar branch protection con `Eval gate (ci_subset)` como check requerido.
+
 ## Completado en esta sesión (Bloque D, sesión 8)
 
 - [x] Primer commit de rama: `specs/11-frontend-chat.md` committeado; AU marcado como completado, D como in_progress.

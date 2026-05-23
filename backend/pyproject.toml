@@ -26,6 +26,9 @@ dependencies = [
     "arize-phoenix-otel>=0.16.1",
     "openinference-instrumentation-langchain>=0.1.66",
     "opentelemetry-exporter-otlp>=1.42.1",
+    # Evals (spec 10 / ADR-007): RAGAS metrics with Gemini Pro as judge.
+    "ragas>=0.2,<0.3",
+    "pyyaml>=6.0",
 ]
 
 [dependency-groups]
@@ -45,6 +48,10 @@ packages = ["app"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "ci_subset: representative gold subset run on every PR (spec 10).",
+    "evals_live: needs a real Gemini key + populated pgvector; skipped in unit runs.",
+]
 
 [tool.ruff]
 line-length = 100
