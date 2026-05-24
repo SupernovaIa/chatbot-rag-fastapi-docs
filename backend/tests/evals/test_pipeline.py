@@ -60,9 +60,13 @@ def test_example_flows_through_runner(example_id: str) -> None:
     assert run.is_answerable == example.is_answerable
 
     if example.is_answerable:
-        # Gold chunks are retrievable → recall@5 is perfect for this fake.
+        # Gold chunks are retrievable → per-example recall is perfect.
         assert recall_at_k(run.retrieved_keys, run.gold_keys, k=5) == 1.0
-        assert report.metrics.recall_at_5 == 1.0
+        if example.type == "multi_source":
+            # Excluded from the deterministic aggregate (label-match too strict).
+            assert report.metrics.recall_at_5 is None
+        else:
+            assert report.metrics.recall_at_5 == 1.0
     else:
         # no_se: excluded from recall, scored by abstention instead.
         assert report.metrics.recall_at_5 is None

@@ -39,9 +39,13 @@ El runner y los tests se implementan primero. Antes de cablear ningún workflow:
 
 ### CI (tras aprobar la estrategia)
 
-- [ ] `.github/workflows/eval.yml` (PR): levanta Postgres como service, indexa corpus de prueba, corre el subset del gate, comenta el PR con tabla de métricas vs baseline de `main`, falla si no se cumple el threshold.
+- [ ] `.github/workflows/eval.yml` (PR): levanta Postgres como service, indexa corpus de prueba, corre el **gate determinista** (recall@5/MRR), comenta el PR con la tabla y falla si no se cumple el threshold.
 
-> **Nota (sesión 10, sin ADR):** el subset del **gate del PR** es de **6 ejemplos** (`CI_GATE_IDS`: g-01, g-03, g-16, g-24, g-31, g-36 — cubre los 5 tipos, incluye un multi_source y el no_se), no los ~15 que planteaba el arranque. Motivo: el juez Gemini 3 Pro (~50 s/llamada) más la latencia runner→API hacen que el `ci_subset` completo (12 answerable × 4 métricas) supere el presupuesto de <10 min en CI (medido ~13-14 min). El baseline del gate se mide sobre esos mismos 6 (apples-to-apples con la regresión). La suite completa (40) y el `ci_subset` (14) siguen corriéndose en la nocturna / disponibles vía `--subset`.
+> **Nota (sesión 10, sin ADR): el gate del PR es DETERMINISTA; el juez LLM es monitor nocturno.**
+>
+> El juez Gemini 3 Pro (~50 s/llamada) + la latencia/varianza/cuota del free-tier lo hacen inviable como bloqueante por-PR: el `ci_subset` completo se iba a ~13-14 min y, con la cuota Pro agotada, los runs del juez expiraban (1/20 trabajos en 11 min). Por eso:
+> - **Gate del PR (`eval.yml`, bloqueante):** solo deterministas — `recall@5` y `MRR` sobre los answerable **label-matchables** del subset `CI_GATE_IDS` (6 ej.: g-01, g-03, g-16, g-24, g-31, g-36; cubre los 5 tipos), **excluyendo multi_source (g-24)** —el match por `(source,section)` es injusto cuando la info está en chunks no-gold— **y no_se (g-31)**. Sin generación ni juez → corre en segundos (medido: sano 70 s PASS / retrieval roto 7 s FAIL). Floors: recall@5 ≥ 0.85, MRR ≥ 0.85 (baseline determinista 1.0/1.0). Abstención advisory.
+> - **Juez LLM (`eval-nightly.yml`, monitor de tendencia, NO bloquea PRs):** RAGAS + Gemini Pro sobre los 40, floors + regresión absoluta 0.07 vs baseline, refresca `baseline_metrics.json`. Un run rojo es una alerta de tendencia.
 - [ ] `.github/workflows/eval-nightly.yml`: suite completa (40 ejemplos) en `schedule: cron` + `workflow_dispatch`, actualiza la baseline de `main`.
 - [ ] Branch protection + secret `GOOGLE_API_KEY`.
 - [ ] **Mitigación del free tier:** subset en el gate del PR; suite completa solo nocturna. Backoff y degradación clara si se satura el rate limit.

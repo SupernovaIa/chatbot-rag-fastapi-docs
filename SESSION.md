@@ -35,16 +35,15 @@ Gate humano **cerrado** (sesión 10): thresholds fijados, baseline definitivo me
 - **recall@5 vs multi_source.** El match determinista por `(source, section)` da 0 cuando la info está en chunks no-gold (g-24), aunque la respuesta sea correcta. Por eso recall@5/MRR pasan a **advisory**; el gate bloquea solo sobre las 4 métricas del juez.
 
 **Estrategia del gate acordada:**
-- Floors del juez: faithfulness 0.80, answer_relevancy 0.70, context_precision 0.80, context_recall 0.85.
-- Regresión **absoluta**: bloquea si una métrica del juez cae >0.07 vs el baseline de `main`.
-- recall@5 / MRR / abstención: advisory (no bloqueantes).
-- **Subset del gate del PR = 6 ejemplos** (`CI_GATE_IDS`: g-01, g-03, g-16, g-24, g-31, g-36) por presupuesto de tiempo de CI (el `ci_subset` de 14 se iba a ~13-14 min; ver nota en spec 10). Baseline pinneado sobre esos 6 (5 answerable, rerank vivo, prompt v1.2): faithfulness 1.0 · answer_relevancy 0.847 · context_precision 0.99 · context_recall 1.0. La nocturna corre los 40 + refresca el baseline del gate sobre `ci_gate`.
+**Arquitectura final (opción 2): gate del PR DETERMINISTA, juez LLM nocturno.**
+- **Gate del PR (`eval.yml`, bloqueante):** solo `recall@5` + `MRR` sobre los answerable label-matchables de `CI_GATE_IDS` (6 ej.: g-01, g-03, g-16, g-24, g-31, g-36), **excluyendo multi_source (g-24) y no_se (g-31)**. Sin generación ni juez → corre en segundos. Floors recall@5/MRR ≥ 0.85 (baseline determinista 1.0/1.0, poco margen). Abstención advisory. `timeout-minutes: 8`, caché de índice.
+- **Juez LLM (`eval-nightly.yml`, monitor de tendencia, NO bloquea PRs):** RAGAS + Gemini Pro sobre los 40; floors del juez (faithfulness 0.80, answer_relevancy 0.70, context_precision 0.80, context_recall 0.85) + regresión absoluta 0.07 vs baseline; refresca `baseline_metrics.json`. Baseline inicial del juez = medición del `ci_subset` (faithfulness 0.945 / ar 0.846 / cp 0.987 / cr 0.958).
+- Motivo del cambio: latencia/varianza/cuota del free-tier de Gemini 3 Pro hacen el juez inviable como bloqueante por-PR (sin ADR nuevo; nota en spec 10).
 
-**Latencia/coste del gate del PR:** CI usa `max_workers=6` + caché de índice (actions/cache keyed por hash del corpus + modelo de embeddings; el embedding cuesta ~40 s, no es el cuello de botella). `timeout-minutes: 12` como kill switch.
-
-**Verificación del gate (determinista, sin cuota):** ✅ healthy PASS; regresión de faithfulness 0.10 BLOQUEA; answer_relevancy bajo floor BLOQUEA; context_recall −0.10 BLOQUEA; recall@5 hundido NO bloquea (advisory). Nota: con baseline faithfulness=1.0 y regresión 0.07, la banda efectiva de faithfulness es [0.93, 1.0] (los valores sanos medidos ~0.94-0.95 pasan, con poco margen); la nocturna re-mide y estabiliza el baseline.
-
-**Verificación live en CI: ⏳ bloqueada hoy por cuota.** El juez Gemini 3 Pro free-tier quedó throttleado tras los muchos runs del gate de hoy (1/20 trabajos en 11 min, resto `TimeoutError`), así que el run del gate en la PR #17 se canceló por timeout. Es un estado transitorio de cuota, NO un fallo de diseño. **Pendiente:** re-ejecutar el check `Eval gate (ci_subset)` en la PR #17 cuando la cuota Pro se reponga (reset diario) para confirmar el <10 min en vivo. El gate es **fail-safe**: un run throttleado se cancela (no pasa) → branch protection bloquea el merge hasta un run limpio.
+**Verificación HOY (sin cuota de juez, determinista):**
+- ✅ **PR sano** (retrieval real): PASS, exit 0, recall@5=1.0 MRR=1.0, **70 s**.
+- ✅ **PR que degrada retrieval** (corpus vacío): FAIL, exit 1, recall@5=0 MRR=0, **7 s**.
+- Lógica del gate y del monitor cubierta por 79 tests de evals (deterministas, con fakes).
 
 **Branch protection:** `main` requiere los checks `Eval gate (ci_subset)` + `Backend lint + tests`. `enforce_admins=false` a propósito, para que el merge humano de la PR #17 no quede bloqueado por el check throttleado de hoy.
 

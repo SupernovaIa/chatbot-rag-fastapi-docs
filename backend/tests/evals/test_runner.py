@@ -108,6 +108,46 @@ def test_runner_no_judge_skips_ragas() -> None:
     assert report.metrics.recall_at_5 == 1.0
 
 
+def test_runner_excludes_multi_source_from_recall() -> None:
+    # A multi_source example whose gold chunks are NOT retrieved must not drag
+    # down recall@5 (it is excluded from the deterministic metric).
+    factual = _answerable("g-1", "a.md", "Sec A")
+    multi = GoldExample(
+        id="g-2", type="multi_source", question="q-g-2", expected_answer="x",
+        gold_chunks=[GoldChunk("gold.md", "Gold")],
+    )
+    retriever = FakeRetriever(by_question={
+        "q-g-1": [make_candidate("a.md", "Sec A")],
+        "q-g-2": [make_candidate("other.md", "Other")],  # gold NOT retrieved
+    })
+    report = run_evals([factual, multi], retriever_fn=retriever,
+                       generator=FakeGenerator(), judge=FakeJudge())
+    # recall computed over the factual only (multi_source excluded) -> 1.0
+    assert report.metrics.recall_at_5 == 1.0
+
+
+def test_runner_retrieval_only_skips_generation_and_judge() -> None:
+    ex = _answerable("g-1", "a.md", "Sec A")
+    retriever = FakeRetriever(by_question={"q-g-1": [make_candidate("a.md", "Sec A")]})
+    gen = FakeGenerator()
+    judge = FakeJudge()
+    report = run_evals([ex], retriever_fn=retriever, generator=gen, judge=judge,
+                       use_generator=False)
+    assert gen.calls == []          # generator never invoked
+    assert judge.n_samples is None  # judge never invoked
+    assert report.runs[0].response == ""
+    assert report.metrics.recall_at_5 == 1.0  # retrieval metric still computed
+    assert report.metrics.faithfulness is None
+
+
+def test_runner_accepts_none_generator_and_judge() -> None:
+    ex = _answerable("g-1", "a.md", "Sec A")
+    retriever = FakeRetriever(by_question={"q-g-1": [make_candidate("a.md", "Sec A")]})
+    report = run_evals([ex], retriever_fn=retriever, generator=None, judge=None,
+                       use_generator=False)
+    assert report.metrics.recall_at_5 == 1.0
+
+
 def test_runner_passes_history_to_retriever() -> None:
     ex = GoldExample(
         id="g-36",

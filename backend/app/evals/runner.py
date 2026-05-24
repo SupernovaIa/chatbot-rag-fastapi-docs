@@ -34,15 +34,26 @@ logger = logging.getLogger(__name__)
 RetrieverFn = Callable[[str, list[Turn]], RetrievalResult]
 
 
+# Types excluded from the deterministic recall@5 / MRR (label matching by
+# (source, section) is unfair when the answer can be grounded in non-gold
+# chunks). multi_source is excluded; no_se has no gold and is excluded already.
+_NON_LABEL_MATCHABLE_TYPES = frozenset({"multi_source"})
+
+
 def _run_one(
     example: GoldExample,
     retriever_fn: RetrieverFn,
-    generator: AnswerGeneratorPort,
+    generator: AnswerGeneratorPort | None,
 ) -> ExampleRun:
     try:
         result = retriever_fn(example.question, example.history)
         candidates = result.candidates
-        answer = generator.generate(example.question, example.history, candidates)
+        # Generation is skipped for the deterministic PR gate (retrieval-only).
+        answer = (
+            generator.generate(example.question, example.history, candidates)
+            if generator is not None
+            else ""
+        )
         return ExampleRun(
             id=example.id,
             type=example.type,
@@ -74,23 +85,31 @@ def _run_one(
 def run_evals(
     examples: list[GoldExample],
     retriever_fn: RetrieverFn,
-    generator: AnswerGeneratorPort,
-    judge: JudgePort,
+    generator: AnswerGeneratorPort | None,
+    judge: JudgePort | None,
     *,
     top_k: int = 5,
     commit_sha: str = "",
     corpus_sha: str = "",
     subset: str = "full",
+    use_generator: bool = True,
     use_judge: bool = True,
 ) -> RunReport:
-    """Run the full eval flow and return an aggregated ``RunReport``."""
-    runs = [_run_one(ex, retriever_fn, generator) for ex in examples]
+    """Run the eval flow and return an aggregated ``RunReport``.
+
+    ``use_generator=False`` runs retrieval only (deterministic PR gate); the
+    judge is then necessarily skipped too.
+    """
+    gen = generator if use_generator else None
+    runs = [_run_one(ex, retriever_fn, gen) for ex in examples]
 
     answerable = [r for r in runs if r.is_answerable and not r.error]
     no_se = [r for r in runs if not r.is_answerable and not r.error]
 
-    recalls = [recall_at_k(r.retrieved_keys, r.gold_keys, k=top_k) for r in answerable]
-    rrs = [reciprocal_rank(r.retrieved_keys, r.gold_keys) for r in answerable]
+    # Deterministic retrieval metrics exclude non-label-matchable types.
+    label_matchable = [r for r in answerable if r.type not in _NON_LABEL_MATCHABLE_TYPES]
+    recalls = [recall_at_k(r.retrieved_keys, r.gold_keys, k=top_k) for r in label_matchable]
+    rrs = [reciprocal_rank(r.retrieved_keys, r.gold_keys) for r in label_matchable]
     abstentions = [1.0 if is_abstention(r.response) else 0.0 for r in no_se]
 
     scores = MetricScores(
@@ -99,7 +118,7 @@ def run_evals(
         abstention_rate=mean(abstentions),
     )
 
-    if use_judge and answerable:
+    if use_generator and use_judge and judge is not None and answerable:
         ragas_scores = judge.evaluate(answerable)
         scores.faithfulness = ragas_scores.get("faithfulness")
         scores.answer_relevancy = ragas_scores.get("answer_relevancy")

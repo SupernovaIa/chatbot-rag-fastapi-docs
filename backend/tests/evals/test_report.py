@@ -1,125 +1,127 @@
-"""Tests for the gate decision and Markdown report."""
+"""Tests for the deterministic PR gate and the nightly judge monitor."""
 
 from __future__ import annotations
 
 from app.evals.models import ExampleRun, MetricScores, RunReport
 from app.evals.report import (
     evaluate_gate,
+    evaluate_judge,
     load_thresholds,
     render_markdown,
     report_to_baseline,
 )
 
-# A thresholds dict mirroring thresholds.yaml shape, kept local so the test is
-# independent of future tuning of the real file.
 THRESHOLDS = {
-    "floors": {
-        "faithfulness": 0.75,
-        "answer_relevancy": 0.80,
-        "context_precision": 0.70,
-        "context_recall": 0.80,
+    "gate": {"recall_at_5": 0.85, "mrr": 0.85},
+    "judge": {
+        "floors": {
+            "faithfulness": 0.80,
+            "answer_relevancy": 0.70,
+            "context_precision": 0.80,
+            "context_recall": 0.85,
+        },
+        "regression": {"enabled": True, "max_absolute_drop": 0.07},
     },
-    "advisory": {"recall_at_5": 0.85, "mrr": 0.60, "abstention_rate": 0.80},
-    "regression": {"enabled": True, "max_absolute_drop": 0.07},
+    "advisory": {"abstention_rate": 0.80},
 }
 
 
 def _report(**overrides) -> RunReport:
     base = dict(
-        faithfulness=0.9,
-        answer_relevancy=0.9,
-        context_precision=0.8,
-        context_recall=0.9,
-        recall_at_5=0.9,
-        mrr=0.8,
+        faithfulness=0.95, answer_relevancy=0.85, context_precision=0.98,
+        context_recall=0.96, recall_at_5=1.0, mrr=1.0,
     )
     base.update(overrides)
-    return RunReport(metrics=MetricScores(**base), subset="ci_subset")
+    return RunReport(metrics=MetricScores(**base), subset="ci_gate")
 
 
-def test_thresholds_yaml_loads_with_expected_keys() -> None:
+# --- thresholds file ---
+
+def test_thresholds_yaml_has_gate_and_judge_sections() -> None:
     t = load_thresholds()
-    # Only the four LLM-judged metrics gate; recall@5 / MRR are advisory.
-    assert set(t["floors"]) == {
+    assert set(t["gate"]) == {"recall_at_5", "mrr"}
+    assert set(t["judge"]["floors"]) == {
         "faithfulness", "answer_relevancy", "context_precision", "context_recall",
     }
-    assert {"recall_at_5", "mrr"} <= set(t["advisory"])
+    assert t["judge"]["regression"]["enabled"] is True
 
 
-def test_gate_passes_when_all_above_floor() -> None:
-    verdict = evaluate_gate(_report(), thresholds=THRESHOLDS)
-    assert verdict.passed
-    assert verdict.failures == []
+# --- deterministic PR gate (recall@5, MRR) ---
+
+def test_pr_gate_passes_above_floor() -> None:
+    assert evaluate_gate(_report(), thresholds=THRESHOLDS).passed
 
 
-def test_gate_fails_below_floor() -> None:
-    verdict = evaluate_gate(_report(faithfulness=0.5), thresholds=THRESHOLDS)
+def test_pr_gate_blocks_when_recall_below_floor() -> None:
+    # One of four label-matchable examples loses its gold chunk -> recall 0.75.
+    verdict = evaluate_gate(_report(recall_at_5=0.75), thresholds=THRESHOLDS)
     assert not verdict.passed
-    failed = {m.name for m in verdict.failures}
-    assert failed == {"faithfulness"}
-    assert "below floor" in verdict.failures[0].reason
+    assert {m.name for m in verdict.failures} == {"recall_at_5"}
 
 
-def test_gate_fails_on_absolute_regression_even_above_floor() -> None:
-    # faithfulness 0.86 is above the 0.80 floor but a 0.09 drop (>0.07) from 0.95.
-    baseline = {"faithfulness": 0.95}
-    verdict = evaluate_gate(_report(faithfulness=0.86), thresholds=THRESHOLDS, baseline=baseline)
+def test_pr_gate_blocks_when_mrr_below_floor() -> None:
+    verdict = evaluate_gate(_report(mrr=0.80), thresholds=THRESHOLDS)
+    assert not verdict.passed
+    assert {m.name for m in verdict.failures} == {"mrr"}
+
+
+def test_pr_gate_ignores_judge_metrics() -> None:
+    # Judge metrics tanked must NOT affect the deterministic PR gate.
+    verdict = evaluate_gate(_report(faithfulness=0.1, context_recall=0.1), thresholds=THRESHOLDS)
+    assert verdict.passed
+    assert {m.name for m in verdict.metrics} == {"recall_at_5", "mrr"}
+
+
+# --- nightly judge monitor ---
+
+def test_judge_monitor_passes_at_baseline() -> None:
+    base = {"faithfulness": 0.95, "answer_relevancy": 0.85,
+            "context_precision": 0.98, "context_recall": 0.96}
+    assert evaluate_judge(_report(), thresholds=THRESHOLDS, baseline=base).passed
+
+
+def test_judge_monitor_flags_floor_break() -> None:
+    verdict = evaluate_judge(_report(context_recall=0.70), thresholds=THRESHOLDS)
+    assert not verdict.passed
+    assert any(m.name == "context_recall" for m in verdict.failures)
+
+
+def test_judge_monitor_flags_absolute_regression() -> None:
+    base = {"faithfulness": 0.95}
+    # 0.86 is above the 0.80 floor but a 0.09 drop (>0.07) from baseline.
+    verdict = evaluate_judge(_report(faithfulness=0.86), thresholds=THRESHOLDS, baseline=base)
     assert not verdict.passed
     assert any("regressed" in m.reason for m in verdict.failures)
 
 
-def test_gate_tolerates_small_drop_within_margin() -> None:
-    baseline = {"faithfulness": 0.95}
-    # 0.90 is a 0.05 drop (< 0.07) and above the floor → tolerated.
-    verdict = evaluate_gate(_report(faithfulness=0.90), thresholds=THRESHOLDS, baseline=baseline)
-    assert verdict.passed
+def test_judge_monitor_excludes_retrieval_metrics() -> None:
+    assert {m.name for m in evaluate_judge(_report(), thresholds=THRESHOLDS).metrics} == {
+        "faithfulness", "answer_relevancy", "context_precision", "context_recall",
+    }
 
 
-def test_recall_and_mrr_are_advisory_not_gated() -> None:
-    # recall@5 / MRR well below their reference values must NOT block the gate.
-    verdict = evaluate_gate(_report(recall_at_5=0.10, mrr=0.10), thresholds=THRESHOLDS)
-    assert verdict.passed
-    gated = {m.name for m in verdict.metrics}
-    assert "recall_at_5" not in gated
-    assert "mrr" not in gated
+# --- rendering ---
 
-
-def test_uncomputed_metric_is_not_gated() -> None:
-    verdict = evaluate_gate(_report(faithfulness=None), thresholds=THRESHOLDS)
-    assert verdict.passed
-    faith = next(m for m in verdict.metrics if m.name == "faithfulness")
-    assert faith.value is None
-    assert faith.passed
-
-
-def test_render_markdown_shows_status_and_metrics() -> None:
-    report = _report()
-    verdict = evaluate_gate(report, thresholds=THRESHOLDS)
-    md = render_markdown(report, verdict)
-    assert "PASS" in md
-    assert "faithfulness" in md
-    assert "recall@5" in md
+def test_render_pr_gate_shows_retrieval_and_advisory() -> None:
+    report = _report(abstention_rate=1.0)
+    md = render_markdown(report, evaluate_gate(report, thresholds=THRESHOLDS))
+    assert "recall@5" in md and "MRR" in md
     assert "abstention_rate" in md
+    assert "faithfulness" not in md  # judge metrics are not in the PR gate table
 
 
-def test_render_markdown_flags_errors() -> None:
+def test_render_flags_errors() -> None:
     report = _report()
     report.runs = [
-        ExampleRun(
-            id="g-99", type="factual", question="q", expected_answer="e",
-            response="", retrieved_contexts=[], retrieved_keys=[], gold_keys=set(),
-            is_answerable=True, error="timeout",
-        )
+        ExampleRun(id="g-99", type="factual", question="q", expected_answer="e",
+                   response="", retrieved_contexts=[], retrieved_keys=[], gold_keys=set(),
+                   is_answerable=True, error="timeout")
     ]
-    verdict = evaluate_gate(report, thresholds=THRESHOLDS)
-    md = render_markdown(report, verdict)
-    assert "g-99" in md
-    assert "error" in md.lower()
+    md = render_markdown(report, evaluate_gate(report, thresholds=THRESHOLDS))
+    assert "g-99" in md and "error" in md.lower()
 
 
 def test_report_to_baseline_drops_none_metrics() -> None:
-    report = _report(faithfulness=None)
-    payload = report_to_baseline(report)
+    payload = report_to_baseline(_report(faithfulness=None))
     assert "faithfulness" not in payload["metrics"]
-    assert payload["metrics"]["recall_at_5"] == 0.9
-    assert payload["subset"] == "ci_subset"
+    assert payload["metrics"]["recall_at_5"] == 1.0

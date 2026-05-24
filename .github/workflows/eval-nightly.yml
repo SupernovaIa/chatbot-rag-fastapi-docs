@@ -92,23 +92,19 @@ jobs:
               pg_dump -h localhost -U postgres -d chatbot_rag --data-only --table=chunks > chunks_dump.sql
           fi
 
-      # Full suite (40): monitoring + artifact. Does NOT feed the gate baseline.
-      - name: Run full eval suite (monitoring)
+      # Full suite (40) through the RAGAS + Gemini Pro judge: trend monitor.
+      # Compares the judge metrics vs the main baseline (floors + 0.07 absolute
+      # regression) and refreshes that baseline to the current full-suite values.
+      # This is NOT a per-PR blocker; a red run is a trend alert.
+      - name: Run judge monitor (full suite) + refresh baseline
         working-directory: backend
         run: |
           uv run python -m app.evals.cli \
             --subset full \
+            --baseline ../baseline_metrics.json \
+            --update-baseline ../baseline_metrics.json \
             --markdown ../eval_report.md \
             --json ../eval_full_metrics.json
-
-      # Refresh the gate baseline on the SAME subset the PR gate runs (ci_gate)
-      # so the regression check stays apples-to-apples.
-      - name: Refresh gate baseline (ci_gate)
-        working-directory: backend
-        run: |
-          uv run python -m app.evals.cli \
-            --subset ci_gate \
-            --update-baseline ../baseline_metrics.json
 
       - name: Upload eval report artifact
         if: always()

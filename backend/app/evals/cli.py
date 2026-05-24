@@ -4,16 +4,23 @@ Wires the real adapters (pgvector hybrid search, Gemini embeddings/Flash/Pro)
 into ``run_evals``, applies the gate, prints the Markdown report and writes the
 machine-readable artifacts CI consumes.
 
+Two modes:
+
+- ``--retrieval-only`` — the **PR gate**: deterministic recall@5 / MRR over the
+  label-matchable answerable examples. No generation, no judge → runs in seconds.
+- default — the **nightly monitor**: full pipeline + RAGAS judge (Gemini Pro),
+  floors + regression vs the baseline; refreshes the judge baseline.
+
 Usage (stack up, env loaded), from ``backend/``:
 
-    python -m app.evals.cli --subset ci_subset
-    python -m app.evals.cli --subset full --update-baseline baseline_metrics.json
-    python -m app.evals.cli --subset ci_subset --baseline baseline_metrics.json \\
-        --markdown eval_report.md --json eval_metrics.json
+    # PR gate (deterministic, blocking, seconds):
+    python -m app.evals.cli --subset ci_gate --retrieval-only --markdown eval_report.md
+    # Nightly judge monitor (full suite) + baseline refresh:
+    python -m app.evals.cli --subset full --baseline baseline_metrics.json \\
+        --update-baseline baseline_metrics.json --markdown eval_report.md
 
-Exit code is ``0`` when the gate passes, ``1`` when it fails (so CI blocks the
-merge), ``2`` on a wiring/setup error. ``--no-judge`` skips RAGAS (deterministic
-metrics only) for cheap smoke runs that don't touch the Gemini Pro free tier.
+Exit code is ``0`` when the check passes, ``1`` when it fails (PR gate blocks the
+merge; nightly turns red as a trend alert), ``2`` on a wiring/setup error.
 """
 
 from __future__ import annotations
@@ -76,7 +83,10 @@ def main(argv: list[str] | None = None) -> int:
         help="ci_gate (6 ej., PR gate), ci_subset (14 ej.), or full (40, nightly).",
     )
     parser.add_argument("--top-k", type=int, default=5)
-    parser.add_argument("--no-judge", action="store_true", help="Skip RAGAS metrics.")
+    parser.add_argument(
+        "--retrieval-only", action="store_true",
+        help="Deterministic PR gate: retrieval metrics only (no generation, no judge).",
+    )
     parser.add_argument("--baseline", type=Path, help="baseline_metrics.json to compare against.")
     parser.add_argument("--update-baseline", type=Path, help="Write this run as the new baseline JSON.")
     parser.add_argument("--markdown", type=Path, help="Write the PR-comment Markdown here.")
@@ -91,6 +101,7 @@ def main(argv: list[str] | None = None) -> int:
     from app.evals.loader import CI_GATE_IDS, CI_SUBSET_IDS, load_gold, select_subset
     from app.evals.report import (
         evaluate_gate,
+        evaluate_judge,
         load_baseline,
         render_markdown,
         report_to_baseline,
@@ -99,8 +110,8 @@ def main(argv: list[str] | None = None) -> int:
     from app.evals.telemetry import record_eval_run
 
     settings = get_settings()
-    if not settings.google_api_key and not args.no_judge:
-        logger.error("GOOGLE_API_KEY is not set (use --no-judge for a dry run).")
+    if not settings.google_api_key:
+        logger.error("GOOGLE_API_KEY is not set.")
         return 2
 
     examples = load_gold()
@@ -111,12 +122,12 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         retriever_fn = _build_retriever(settings, top_k=args.top_k)
-        generator = GeminiAnswerGenerator(
+        generator = None if args.retrieval_only else GeminiAnswerGenerator(
             api_key=settings.google_api_key,
             model=settings.gemini_flash_model,
             timeout=settings.evals_gen_timeout_s,
         )
-        judge = RagasGeminiJudge(
+        judge = None if args.retrieval_only else RagasGeminiJudge(
             api_key=settings.google_api_key,
             judge_model=settings.gemini_pro_model,
             max_workers=settings.evals_judge_max_workers,
@@ -135,14 +146,26 @@ def main(argv: list[str] | None = None) -> int:
         commit_sha=os.environ.get("GITHUB_SHA", ""),
         corpus_sha=settings.corpus_sha,
         subset=args.subset,
-        use_judge=not args.no_judge,
+        use_generator=not args.retrieval_only,
+        use_judge=not args.retrieval_only,
     )
 
     record_eval_run(report)
 
-    baseline = load_baseline(args.baseline)
-    verdict = evaluate_gate(report, baseline=baseline)
-    markdown = render_markdown(report, verdict)
+    if args.retrieval_only:
+        # PR gate: deterministic floors (recall@5, MRR). Blocking.
+        verdict = evaluate_gate(report)
+        markdown = render_markdown(report, verdict)
+    else:
+        # Nightly monitor: judge floors + regression vs baseline. Alerting.
+        baseline = load_baseline(args.baseline)
+        verdict = evaluate_judge(report, baseline=baseline)
+        markdown = render_markdown(
+            report, verdict,
+            title="Juez LLM (monitor de tendencia · nocturna)",
+            advisory=("recall_at_5", "mrr", "abstention_rate"),
+            show_baseline=True,
+        )
     print(markdown)
 
     if args.markdown:
