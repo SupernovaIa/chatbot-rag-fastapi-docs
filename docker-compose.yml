@@ -62,6 +62,10 @@ services:
       # maps to /prompts inside the container. Bind-mount so the image picks
       # them up without changing the build context.
       - ./prompts:/prompts:ro
+      # The gold dataset lives at the repo root too (outside the build context).
+      # The eval runner resolves it at Path(__file__).parents[3] / "corpus",
+      # i.e. /corpus inside the container. Bind-mount read-only for `/eval`.
+      - ./corpus:/corpus:ro
     environment:
       DATABASE_URL: postgresql+psycopg://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/chatbot_rag
       GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}

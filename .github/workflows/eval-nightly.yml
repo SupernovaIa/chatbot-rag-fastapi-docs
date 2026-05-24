@@ -19,12 +19,14 @@ jobs:
   evals-full:
     name: Full eval suite (40)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/chatbot_rag
       GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
       AZURE_STORAGE_CONNECTION_STRING: "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://127.0.0.1:10000/devstoreaccount1;"
       DISABLE_TRACING: "1"
+      EVALS_JUDGE_MAX_WORKERS: "6"
+      EMBEDDING_MODEL: gemini-embedding-001
 
     services:
       postgres:
@@ -62,25 +64,50 @@ jobs:
         working-directory: backend
         run: uv sync
 
-      - name: Upload corpus to Azurite
-        working-directory: backend
-        run: uv run python ../scripts/upload_corpus.py
-
       - name: Apply migrations
         working-directory: backend
         run: uv run alembic upgrade head
 
-      - name: Index corpus into pgvector
-        working-directory: backend
-        run: uv run python ../scripts/index_corpus.py
+      - name: Restore pgvector index cache
+        id: idxcache
+        uses: actions/cache@v4
+        with:
+          path: chunks_dump.sql
+          key: pgvec-${{ hashFiles('corpus/sample/fastapi-docs/**') }}-${{ env.EMBEDDING_MODEL }}
 
-      - name: Run full eval suite and refresh baseline
+      - name: Build index (cache miss) or restore it (cache hit)
+        run: |
+          set -euo pipefail
+          if [ -f chunks_dump.sql ]; then
+            echo "Index cache HIT — restoring chunks."
+            docker run --rm --network host -e PGPASSWORD=postgres -v "$PWD:/w" \
+              pgvector/pgvector:pg17 \
+              psql -h localhost -U postgres -d chatbot_rag -v ON_ERROR_STOP=1 -f /w/chunks_dump.sql
+          else
+            echo "Index cache MISS — uploading corpus and embedding chunks."
+            ( cd backend && uv run python ../scripts/upload_corpus.py && uv run python ../scripts/index_corpus.py )
+            docker run --rm --network host -e PGPASSWORD=postgres \
+              pgvector/pgvector:pg17 \
+              pg_dump -h localhost -U postgres -d chatbot_rag --data-only --table=chunks > chunks_dump.sql
+          fi
+
+      # Full suite (40): monitoring + artifact. Does NOT feed the gate baseline.
+      - name: Run full eval suite (monitoring)
         working-directory: backend
         run: |
           uv run python -m app.evals.cli \
             --subset full \
-            --update-baseline ../baseline_metrics.json \
-            --markdown ../eval_report.md
+            --markdown ../eval_report.md \
+            --json ../eval_full_metrics.json
+
+      # Refresh the gate baseline on the SAME subset the PR gate runs (ci_subset)
+      # so the regression check stays apples-to-apples.
+      - name: Refresh gate baseline (ci_subset)
+        working-directory: backend
+        run: |
+          uv run python -m app.evals.cli \
+            --subset ci_subset \
+            --update-baseline ../baseline_metrics.json
 
       - name: Upload eval report artifact
         if: always()
@@ -89,6 +116,7 @@ jobs:
           name: eval-report
           path: |
             eval_report.md
+            eval_full_metrics.json
             baseline_metrics.json
 
       - name: Commit refreshed baseline to main

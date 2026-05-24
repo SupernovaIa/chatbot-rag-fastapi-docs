@@ -2,12 +2,19 @@ name: Evals gate
 
 # PR gate (spec 10 / ADR-007): index the pinned corpus, run the representative
 # gold subset through the pipeline with RAGAS (Gemini Pro judge), post the
-# metrics table as a PR comment and block the merge if the gate fails.
+# metrics table as a PR comment and block the merge if the judge metrics fall
+# below their floor or regress >0.07 vs the main baseline.
 #
-# Free-tier discipline: only the ci_subset (~15 examples) runs here; the full
-# 40-example suite runs nightly (eval-nightly.yml). Requires the GOOGLE_API_KEY
-# secret. Inert until branch protection is enabled and the secret is set
-# (see SESSION.md → "Gate humano").
+# Cost control:
+#   - Only the ci_subset runs here; the full 40-example suite runs nightly.
+#   - The pgvector index is cached with actions/cache keyed by the corpus
+#     snapshot hash + embedding model, so a PR that does not touch the corpus
+#     restores the embeddings instead of re-embedding every chunk (the gold
+#     subset gate then only spends Gemini Pro judge tokens, not embedding ones).
+#   - Judge concurrency is raised to 6 so a healthy run finishes under ~10 min
+#     (measured ~9.5 min at 4 workers locally).
+#
+# Requires the GOOGLE_API_KEY secret. Inert until branch protection is enabled.
 
 on:
   pull_request:
@@ -20,18 +27,20 @@ concurrency:
   group: evals-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  EMBEDDING_MODEL: gemini-embedding-001  # part of the index cache key
+
 jobs:
   evals:
     name: Eval gate (ci_subset)
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12  # kill switch; target healthy run < 10 min
     env:
       DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/chatbot_rag
       GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
-      # Well-known public Azurite development connection string.
       AZURE_STORAGE_CONNECTION_STRING: "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://127.0.0.1:10000/devstoreaccount1;"
-      # Phoenix is not available in CI; spans become no-ops.
       DISABLE_TRACING: "1"
+      EVALS_JUDGE_MAX_WORKERS: "6"
 
     services:
       postgres:
@@ -74,20 +83,38 @@ jobs:
         working-directory: backend
         run: uv sync
 
-      - name: Upload corpus to Azurite
-        if: steps.guard.outputs.skip == 'false'
-        working-directory: backend
-        run: uv run python ../scripts/upload_corpus.py
-
-      - name: Apply migrations
+      - name: Apply migrations (schema)
         if: steps.guard.outputs.skip == 'false'
         working-directory: backend
         run: uv run alembic upgrade head
 
-      - name: Index corpus into pgvector
+      # The cache stores a data-only dump of the `chunks` table (embeddings
+      # included). Key = corpus snapshot hash + embedding model: any corpus edit
+      # or model change busts it and forces a re-index.
+      - name: Restore pgvector index cache
         if: steps.guard.outputs.skip == 'false'
-        working-directory: backend
-        run: uv run python ../scripts/index_corpus.py
+        id: idxcache
+        uses: actions/cache@v4
+        with:
+          path: chunks_dump.sql
+          key: pgvec-${{ hashFiles('corpus/sample/fastapi-docs/**') }}-${{ env.EMBEDDING_MODEL }}
+
+      - name: Build index (cache miss) or restore it (cache hit)
+        if: steps.guard.outputs.skip == 'false'
+        run: |
+          set -euo pipefail
+          if [ -f chunks_dump.sql ]; then
+            echo "Index cache HIT — restoring chunks (no embedding calls)."
+            docker run --rm --network host -e PGPASSWORD=postgres -v "$PWD:/w" \
+              pgvector/pgvector:pg17 \
+              psql -h localhost -U postgres -d chatbot_rag -v ON_ERROR_STOP=1 -f /w/chunks_dump.sql
+          else
+            echo "Index cache MISS — uploading corpus and embedding chunks."
+            ( cd backend && uv run python ../scripts/upload_corpus.py && uv run python ../scripts/index_corpus.py )
+            docker run --rm --network host -e PGPASSWORD=postgres \
+              pgvector/pgvector:pg17 \
+              pg_dump -h localhost -U postgres -d chatbot_rag --data-only --table=chunks > chunks_dump.sql
+          fi
 
       - name: Run eval gate (ci_subset)
         id: eval
