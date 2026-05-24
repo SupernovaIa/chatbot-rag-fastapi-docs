@@ -14,8 +14,15 @@ are equal — the same keys the gold dataset was validated against (spec 08).
 from __future__ import annotations
 
 # Refusal markers for the no_se abstention check. The system prompt instructs
-# the model to answer "No tengo esa información..." when the corpus lacks it.
+# the model to refuse in Spanish ("No tengo esa información..."), but the model
+# still drifts into English on some turns, so we match both languages.
+#
+# NOTE: string matching is fragile (it misses paraphrases and risks false
+# positives). The robust fix is a structured refusal signal emitted by the
+# generator (e.g. an explicit "abstained" flag in the response payload) and
+# checked here instead of scanning prose — deferred to v1.1.
 _ABSTENTION_MARKERS = (
+    # Spanish
     "no tengo esa información",
     "no tengo esa informacion",
     "no puedo darte",
@@ -24,6 +31,17 @@ _ABSTENTION_MARKERS = (
     "fuera del ambito",
     "no está en la documentación",
     "no esta en la documentacion",
+    "no tengo información",
+    "no tengo informacion",
+    # English (model sometimes answers in English despite the Spanish prompt)
+    "don't have information",
+    "do not have information",
+    "don't have sufficient information",
+    "not have enough information",
+    "is outside the scope",
+    "outside the scope of",
+    "not covered in the fastapi documentation",
+    "isn't in the fastapi documentation",
 )
 
 

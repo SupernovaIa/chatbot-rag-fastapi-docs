@@ -33,7 +33,9 @@ class Settings(BaseSettings):
     gemini_flash_model: str = "gemini-3.5-flash"
     # Gemini 3 Pro: evals judge only (RAGAS, ADR-007). A different model than the
     # generator (Flash) to reduce self-approval bias; same provider (partial).
-    gemini_pro_model: str = "gemini-3-pro"
+    # Anchored 2026-05-24: the API exposes the Pro tier as `gemini-3-pro-preview`
+    # (there is no bare `gemini-3-pro` id — it 404s).
+    gemini_pro_model: str = "gemini-3-pro-preview"
 
     # Retrieval tuning (specs 02/03).
     # The Gemini API enforces a minimum request deadline of 10s; the original
@@ -57,7 +59,7 @@ class Settings(BaseSettings):
     # Evals (spec 10 / ADR-007). The judge (Gemini Pro) free tier is tight, so
     # the runner throttles RAGAS concurrency and backs off on rate limits.
     evals_judge_max_workers: int = 2  # RAGAS RunConfig concurrency cap
-    evals_judge_timeout_s: float = 120.0  # per-metric judge call timeout
+    evals_judge_timeout_s: float = 300.0  # per-metric judge call timeout (Pro is slow)
     evals_gen_timeout_s: float = 60.0  # answer-generation timeout per example
 
     # Secrets (no defaults in production; placeholders ease local boot)

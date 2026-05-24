@@ -49,6 +49,14 @@ def test_is_abstention_detects_refusal() -> None:
     assert is_abstention("Esa pregunta está fuera del ámbito de esta documentación.")
 
 
+def test_is_abstention_detects_english_refusal() -> None:
+    # The model sometimes refuses in English despite the Spanish system prompt.
+    assert is_abstention(
+        "I don't have sufficient information in the FastAPI documentation to answer that."
+    )
+    assert is_abstention("That question is outside the scope of these docs.")
+
+
 def test_is_abstention_false_for_real_answer() -> None:
     assert not is_abstention("El comando es `fastapi dev`, que activa el auto-reload.")
 
