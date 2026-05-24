@@ -6,6 +6,17 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y 
 
 ## [No publicado]
 
+### Release v1.0.0 (Bloque Z — cierre operativo, no feature)
+
+- `docs/architecture/04-components.md` — C4 Level 3: componentes del backend (auth, chat, retrieval, indexing, security, evals, observability) y su mapa a bloques de construcción.
+- `README.md` — reescritura completa: qué es, stack en tabla, quickstart en 5 pasos, evals + red teaming, árbol del repo, roadmap v1.1 y anexo de despliegue en Azure (guía).
+- `docs/adr/ADR-012-eval-gate-split.md` + `DECISIONS.md` — ADR del gate de evaluación determinista por PR + juez LLM en la nocturna (decisión surgida en el Bloque E, antes solo en el CHANGELOG).
+- `.gitleaks.toml` — config con allowlist documentada de falsos positivos (clave pública de desarrollo de Azurite, JWT de ejemplo del corpus de FastAPI) → escaneo limpio.
+- `.env.example` — añadidas `ENVIRONMENT` y `CORS_ORIGINS` como opcionales documentadas.
+- `docs/release/v1.0.0.md` — mensaje del tag anotado `v1.0.0` + cuerpo del release (preparados; tag y publicación son gate humano).
+- **fix(scripts):** `docker-compose.yml` monta `./scripts:/app/scripts:ro` — la verificación desde clone fresco reveló que los comandos documentados `docker compose exec backend python scripts/<x>.py` fallaban (scripts/ no estaba montado). README corregido con los comandos verificados.
+- **Verificación end-to-end desde clone fresco** (`down -v` → up → indexar → 5 turnos con citas → /eval PASS → /redteam 20/20 → 331 spans en Phoenix → PR de regresión bloqueado por CI). Detalle en `SESSION.md`. 279 tests verdes, ruff limpio, gitleaks sin hallazgos.
+
 ### Añadido (Bloque S — Seguridad: defensa en profundidad en 5 capas)
 
 - `backend/app/security/` — módulo nuevo con las 5 capas (spec 09, OWASP LLM01/LLM02):
