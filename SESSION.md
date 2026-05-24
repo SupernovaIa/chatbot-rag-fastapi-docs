@@ -5,66 +5,63 @@
 ## Bloque actual
 
 **Bloque:** F (Observabilidad consolidada)
-**Estado:** in_progress
+**Estado:** gate_pending
 **Fecha apertura:** 2026-05-24 (sesión 11)
-**Última actualización:** 2026-05-24 (apertura de sesión 11)
+**Última actualización:** 2026-05-24 (cierre de sesión 11)
 
-> Bloque E completado ✓ (merge squash PR #17 + tag `08-block-E`). Bloque D completado ✓ (tag `07-block-D`). Bloque AU completado ✓ (tag `06-block-AU`). Bloque CH completado ✓ (tag `05-block-CH`). Bloque R completado ✓ (tag `04-block-R`). Bloque G completado ✓ (tag `03-block-G`). Bloque B completado ✓ (tag `02-block-B`). El histórico se conserva más abajo.
+> Bloque E completado ✓ (merge squash PR #17 + tag `08-block-E`). El histórico de bloques anteriores en CHANGELOG.md.
 
 ## Objetivo del bloque
 
-Observabilidad consolidada: completar los spans que faltan (`chat_turn`, `generate` con tokens/cached/TTFT), módulo de coste por query con pricing Gemini, 3 dashboards en Phoenix exportados a `infra/phoenix/dashboards/`, script de medición del impacto del caching implícito, y conexión del slash `/dashboard`.
+Observabilidad consolidada: spans completos (`chat_turn` padre + `generate` con tokens/cached/TTFT/coste), módulo de coste por query con pricing Gemini, 3 dashboards Phoenix en `infra/phoenix/dashboards/`, script de medición de impacto del caching y conexión del slash `/dashboard`.
 
 ## Próxima acción concreta
 
-Implementar y abrir PR. No mergear ni taggear.
+Gate humano: merge squash de la PR + tag `09-block-F`. No mergear ni taggear por agente.
 
 ## Pendientes en este bloque
 
-- [ ] `chat_turn` span padre (envuelve todo el turno: retrieve + generate)
-- [ ] `generate` span con prompt_tokens, cached_tokens, output_tokens, ttft_ms, model, cost_usd
-- [ ] `backend/app/observability/cost.py` — coste por query con pricing Gemini
-- [ ] `docs/cost-model.md` — tabla de precios con versión y fecha
-- [ ] 3 dashboards Phoenix en `infra/phoenix/dashboards/`
-- [ ] `scripts/measure_caching_impact.py` + `docs/caching-impact.md`
-- [ ] Actualizar `/dashboard` para usar Phoenix API y renderizar el resumen
+- [x] `chat_turn` span padre (envuelve retrieval + generate)
+- [x] `generate` span con prompt_tokens, cached_tokens, output_tokens, ttft_ms, caching_available, cache_hit_rate, cost_usd, input_usd, cached_usd, output_usd, savings_usd
+- [x] `backend/app/observability/cost.py` — `QueryCost` + `compute_cost(usage, model)` con pricing Gemini (Flash y Pro)
+- [x] `docs/cost-model.md` — tabla de precios anclada 2026-05-20, proyección mensual
+- [x] `infra/phoenix/dashboards/{health,quality,cost}.json` — 3 dashboards exportados
+- [x] `scripts/measure_caching_impact.py` + `docs/caching-impact.md`
+- [x] Actualizar `.claude/commands/dashboard.md` para usar Phoenix spans API
+- [x] 23 tests nuevos en `backend/tests/observability/test_cost.py`
+- [ ] `python scripts/measure_caching_impact.py` con stack real → actualizar `docs/caching-impact.md` con números reales (gate humano, requiere `GOOGLE_API_KEY`)
+
+## Completado en esta sesión (Bloque F, sesión 11)
+
+- [x] Primer commit de rama: `SESSION.md` — E marcado como completado, F como in_progress.
+- [x] `specs/12-observability-block-f.md` — spec del bloque.
+- [x] `backend/app/observability/cost.py` — `QueryCost` dataclass con `__post_init__` que calcula input_usd, cached_usd, output_usd, total_usd, savings_usd, cache_hit_rate, caching_available. `compute_cost(usage, model)` con fallback a Flash. Pricing anclado 2026-05-20: Flash $0.30/$0.075/$1.25 por M tokens; Pro $1.25/$0.3125/$5.00.
+- [x] `backend/app/chat/router.py` — `chat_turn` span manual: iniciado con `start_span()` antes del retrieval, contexto propagado via `otel_context.attach/detach` para que `asyncio.to_thread` copie el contexto a los sub-spans. Span `generate` iniciado dentro de `event_generator()` como hijo de `chat_turn` via `set_span_in_context`. Captura: `prompt_tokens`, `cached_tokens`, `output_tokens`, `total_tokens`, `ttft_ms` (primer token SSE), `caching_available`, `cache_hit_rate`, `cost_usd`, `input_usd`, `cached_usd`, `output_usd`, `savings_usd`. Cierra ambos spans en `finally`. Cierra el TODO de bloque CH.
+- [x] `docs/cost-model.md` — tabla de precios, desglose por turno, impacto del caching, proyección mensual.
+- [x] `infra/phoenix/dashboards/health.json` — 8 paneles: latencia total/rerank/rewrite, TTFT, fallback rate, throughput, error rate, candidatos dense/sparse.
+- [x] `infra/phoenix/dashboards/quality.json` — 8 paneles: 4 métricas RAGAS con baseline/floor, recall@5/MRR del gate, abstention rate, metadatos del run, regresión vs baseline.
+- [x] `infra/phoenix/dashboards/cost.json` — 8 paneles: coste por turno, tokens por categoría, cache hit rate, ahorro acumulado, desglose pie, coste últimas 24h, top sesiones, disponibilidad caching.
+- [x] `scripts/measure_caching_impact.py` — autentica, envía N turnos SSE, recupera atributos de spans desde Phoenix, genera `docs/caching-impact.md` con tabla + interpretación.
+- [x] `docs/caching-impact.md` — metodología, limitación conocida (Issue #12 / LangChain streaming), estimación teórica, instrucciones de actualización.
+- [x] `.claude/commands/dashboard.md` — actualizado para consultar Phoenix spans API, computar métricas de salud/coste/calidad, renderizar tabla con emojis de alerta.
+- [x] `backend/tests/observability/test_cost.py` — 23 tests: aritmética, caching, Pro, fallback, API pública, turno realista.
+
+## Verificación pre-cierre (sesión 11, Bloque F)
+
+- `cd backend && uv run ruff check .` → `All checks passed!` ✓
+- `cd backend && uv run pytest -q` → `249 passed` (218 previos + 23 nuevos de cost + 8 de cleanup router) ✓
+- `python scripts/measure_caching_impact.py --dry-run` → imprime 5 queries sin requests ✓ (verificado localmente)
+
+> **Nota sobre lo NO verificable aquí sin stack levantado:**
+> - Los spans `chat_turn` y `generate` en Phoenix: requieren `docker compose up -d` + `GOOGLE_API_KEY`.
+> - `scripts/measure_caching_impact.py` con datos reales: requiere stack + API key + usuario registrado.
+> - Los dashboards JSON en Phoenix UI: requieren importar manualmente en la UI de Phoenix (no hay endpoint REST de import en self-hosted).
+
+## Gate de revisión (Bloque F)
+
+- **Criterio:** spans completos en Phoenix con árbol correcto (chat_turn → retrieve/{rewrite,hybrid_search,rerank} + generate); módulo de coste con tests; dashboards como specs; `/dashboard` skill operativo.
+- **Resultado:** **pendiente** (gate humano — merge PR + tag `09-block-F`).
 
 ## Blockers
 
 Ninguno.
-
----
-
-## Completado en esta sesión (Bloque E, sesión 10) — ya en CHANGELOG
-
-Ver bloque E en CHANGELOG.md para el detalle completo.
-
----
-
-## Completado en sesiones anteriores (Bloque D, sesión 8)
-
-Ver bloque D en CHANGELOG.md para el detalle completo.
-
----
-
-## Completado en sesiones anteriores (Bloque AU)
-
-Ver bloque AU en CHANGELOG.md para el detalle completo.
-
----
-
-## Completado en sesiones anteriores (Bloque CH)
-
-Ver bloque CH en CHANGELOG.md para el detalle completo.
-
----
-
-## Completado en sesiones anteriores (Bloque R)
-
-- [x] `backend/app/retrieval/` — hybrid search, RankGPT reranker, query rewriter, orchestrator, LLM adapters, router.
-- [x] `backend/app/observability/tracing.py` — OTel → Phoenix.
-- [x] recall@5 = 0.867, hit-rate = 0.900, MRR = 0.801 (corpus_sha 40e33e4, 30 single-turn).
-
-## Gate de revisión (Bloque R)
-
-- **Resultado:** superado ✓.
