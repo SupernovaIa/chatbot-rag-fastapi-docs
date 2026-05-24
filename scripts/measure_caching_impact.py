@@ -257,27 +257,30 @@ def _fetch_span_usage(
     session: "httpx.Client",  # type: ignore[name-defined]
     session_id: str,
     turn_idx: int,
+    *,
+    project: str = "chatbot-rag-fastapi-docs",
 ) -> Optional[dict]:
     """Query Phoenix spans API for the generate span of this turn.
 
     The ``generate`` span includes a ``session_id`` attribute (set in
     chat/router.py block F) so we can filter client-side after fetching recent
-    spans. The Phoenix REST API filter syntax varies by version, so we keep the
-    server-side filter minimal and do exact matching in Python.
+    spans.
+
+    Phoenix REST endpoint: GET /v1/projects/{project}/spans  (NOT /v1/spans).
     """
-    phoenix_url = base_url.replace(":8000", ":6006")
+    phoenix_base = base_url.replace(":8000", ":6006")
+    endpoint = f"{phoenix_base}/v1/projects/{project}/spans"
     try:
-        # Fetch recent generate-named spans; client-side filter by session_id.
-        # Avoid Phoenix-version-specific OData syntax in the server filter.
         resp = session.get(
-            f"{phoenix_url}/v1/spans",
-            params={
-                "project_name": "chatbot-rag-fastapi-docs",
-                "limit": 50,  # enough to cover all turns in one run
-            },
+            endpoint,
+            params={"limit": 100},  # enough for one measurement run
             timeout=10.0,
         )
         if resp.status_code != 200:
+            print(
+                f"[WARN] Phoenix returned {resp.status_code} from {endpoint}",
+                file=sys.stderr,
+            )
             return None
 
         data = resp.json()
@@ -288,14 +291,13 @@ def _fetch_span_usage(
         matches = [
             s for s in spans
             if s.get("name") == "generate"
-            and s.get("attributes", {}).get("session_id") == session_id
+            and str(s.get("attributes", {}).get("session_id", "")) == str(session_id)
         ]
 
         if not matches:
             return None
 
-        # Return the most recent match (last by start time, or last in list).
-        # spans are typically ordered newest-first from Phoenix.
+        # Phoenix typically returns spans newest-first; use the most recent match.
         attrs = matches[0].get("attributes", {})
         return {
             "prompt_tokens": int(attrs.get("prompt_tokens", 0)),
