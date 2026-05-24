@@ -59,14 +59,25 @@ def _patch_retrieve(monkeypatch, candidates=None):
     return fake_result
 
 
-def _make_llm_mock(tokens: list[str], meta: dict | None = None):
-    """Return a ChatGoogleGenerativeAI mock that streams canned tokens."""
+def _make_llm_mock(
+    tokens: list[str],
+    usage: dict | None = None,
+):
+    """Return a ChatGoogleGenerativeAI mock that streams canned tokens.
+
+    ``usage`` is placed on ``chunk.usage_metadata`` (the LangChain field,
+    not in response_metadata). Defaults to None so the accumulator skips it.
+    """
 
     async def _fake_astream(messages):
-        for tok in tokens:
+        for i, tok in enumerate(tokens):
             chunk = MagicMock()
             chunk.content = tok
-            chunk.response_metadata = meta or {}
+            chunk.response_metadata = {}
+            # Set usage_metadata on the last chunk only (or as provided).
+            # Must be None or a plain dict — never a MagicMock — so the
+            # accumulator's `if um:` check behaves correctly.
+            chunk.usage_metadata = usage if (i == len(tokens) - 1 and usage) else None
             yield chunk
 
     instance = MagicMock()

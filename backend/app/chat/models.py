@@ -50,22 +50,22 @@ class ChatTurn:
 
 @dataclass
 class UsageMeta:
-    """Token usage reported by the Gemini API for a single generation call."""
+    """Token usage reported by the Gemini API for a single generation call.
+
+    Field mapping from ``AIMessageChunk.usage_metadata`` (langchain-google-genai):
+      input_tokens                        → prompt_token_count
+      output_tokens                       → candidates_token_count  (incl. reasoning)
+      total_tokens                        → total_token_count
+      input_token_details["cache_read"]   → cached_content_token_count
+
+    Usage is accumulated by ``stream_chat`` across all streaming chunks
+    (each chunk carries a delta, not cumulative totals).
+    """
 
     prompt_token_count: int = 0
     candidates_token_count: int = 0
     total_token_count: int = 0
     cached_content_token_count: int = 0
-
-    @classmethod
-    def from_response_metadata(cls, meta: dict) -> "UsageMeta":
-        usage = meta.get("usage_metadata", {}) if meta else {}
-        return cls(
-            prompt_token_count=usage.get("prompt_token_count", 0),
-            candidates_token_count=usage.get("candidates_token_count", 0),
-            total_token_count=usage.get("total_token_count", 0),
-            cached_content_token_count=usage.get("cached_content_token_count", 0),
-        )
 
 
 @dataclass

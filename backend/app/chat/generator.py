@@ -5,9 +5,23 @@
   - {"type": "citations", "items": [...]}      — final event with cited sources
   - {"type": "error",     "message": "..."}    — on unrecoverable errors
 
-The generator captures ``UsageMeta`` (including ``cached_content_token_count``)
-from the last streaming chunk's response_metadata and stores it on the
-``StreamingSession`` object so callers can record it in traces.
+The generator captures ``UsageMeta`` from ``chunk.usage_metadata`` (the direct
+attribute on ``AIMessageChunk``), NOT from ``chunk.response_metadata``.
+
+LangChain-Google-GenAI field mapping (confirmed against installed source):
+  chunk.usage_metadata["input_tokens"]                   → prompt_token_count
+  chunk.usage_metadata["output_tokens"]                  → candidates_token_count
+  chunk.usage_metadata["total_tokens"]                   → total_token_count
+  chunk.usage_metadata["input_token_details"]["cache_read"] → cached_content_token_count
+
+Each chunk carries usage as a delta (not cumulative). We accumulate across all
+chunks to obtain totals. ``response_metadata`` carries only model/safety/finish
+info — no token counts.
+
+Note on output_tokens: for thinking-enabled Gemini models (e.g. Gemini Flash),
+``output_tokens`` includes both visible candidates tokens and internal reasoning
+tokens (``output_token_details["reasoning"]``). Both are billed at the output
+rate, so this is the correct value for cost estimation.
 
 Cancellation: the caller passes an ``asyncio.Event`` that is set when the
 client disconnects. The generator checks it between chunks and exits cleanly,
@@ -82,7 +96,14 @@ async def stream_chat(
     )
 
     text_parts: list[str] = []
-    last_response_metadata: dict = {}
+
+    # Accumulate usage across all chunks.
+    # LangChain yields deltas per chunk; input_tokens arrive on the first chunk,
+    # output_tokens are distributed across chunks as generation proceeds.
+    acc_input: int = 0
+    acc_output: int = 0
+    acc_total: int = 0
+    acc_cache_read: int = 0
 
     try:
         async for chunk in llm.astream(messages):
@@ -97,9 +118,14 @@ async def stream_chat(
                 text_parts.append(content)
                 yield {"type": "token", "content": content}
 
-            # LangChain accumulates usage_metadata on the last chunk.
-            if hasattr(chunk, "response_metadata") and chunk.response_metadata:
-                last_response_metadata = chunk.response_metadata
+            # Accumulate token usage from chunk.usage_metadata (direct attribute).
+            # response_metadata does NOT contain token counts; usage_metadata does.
+            um: dict | None = getattr(chunk, "usage_metadata", None)
+            if um:
+                acc_input += um.get("input_tokens", 0)
+                acc_output += um.get("output_tokens", 0)
+                acc_total += um.get("total_tokens", 0)
+                acc_cache_read += (um.get("input_token_details") or {}).get("cache_read", 0)
 
     except asyncio.CancelledError:
         session.cancelled = True
@@ -112,4 +138,13 @@ async def stream_chat(
         return
 
     session.full_text = "".join(text_parts)
-    session.usage = UsageMeta.from_response_metadata(last_response_metadata)
+    session.usage = UsageMeta(
+        prompt_token_count=acc_input,
+        candidates_token_count=acc_output,
+        total_token_count=acc_total,
+        cached_content_token_count=acc_cache_read,
+    )
+    logger.debug(
+        "Stream complete: prompt=%d output=%d total=%d cached=%d",
+        acc_input, acc_output, acc_total, acc_cache_read,
+    )
