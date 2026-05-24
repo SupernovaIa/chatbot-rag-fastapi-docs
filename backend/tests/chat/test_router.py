@@ -359,6 +359,38 @@ class TestGetSession:
 
 
 # ---------------------------------------------------------------------------
+# DELETE /chat/sessions/{id}
+# ---------------------------------------------------------------------------
+
+
+class TestDeleteSession:
+    def test_deletes_own_session(self, client, monkeypatch, fake_store) -> None:
+        _patch_retrieve(monkeypatch)
+        with patch("app.chat.generator.ChatGoogleGenerativeAI") as MockLLM:
+            MockLLM.return_value = _make_llm_mock(["hi"])
+            client.post("/chat/", json={"query": "hello"})
+        sid = fake_store.saved_turns[0]["session_id"]
+
+        response = client.delete(f"/chat/sessions/{sid}")
+        assert response.status_code == 204
+        # Session and its messages are gone (cascade mirrored in the fake).
+        assert sid not in fake_store._sessions
+        assert fake_store.get_session_messages(sid) == []
+
+    def test_403_for_session_of_another_user(self, client, fake_store) -> None:
+        # Session owned by a different user than the injected current_user.
+        sid = fake_store.get_or_create_session(user_id=uuid4())
+        response = client.delete(f"/chat/sessions/{sid}")
+        assert response.status_code == 403
+        # Nothing was deleted.
+        assert sid in fake_store._sessions
+
+    def test_404_for_unknown_session(self, client) -> None:
+        response = client.delete(f"/chat/sessions/{uuid4()}")
+        assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
 # Security layers (spec 09)
 # ---------------------------------------------------------------------------
 

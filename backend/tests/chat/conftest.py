@@ -98,6 +98,11 @@ class FakeChatHistoryStore:
             sessions = (s for s in sessions if s.user_id == user_id)
         return list(sessions)[:limit]
 
+    def delete_session(self, session_id: UUID) -> None:
+        # Mirror ON DELETE CASCADE: removing the session removes its messages.
+        self._sessions.pop(session_id, None)
+        self._messages = [m for m in self._messages if m.session_id != session_id]
+
     def load_history(self, session_id: UUID, window: int = 5) -> list[ChatTurn]:
         turns: dict[int, dict] = {}
         for m in self._messages:
