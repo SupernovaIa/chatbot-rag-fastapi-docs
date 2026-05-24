@@ -56,6 +56,11 @@ class Settings(BaseSettings):
     generate_timeout_s: float = 60.0  # max wall-clock time for one generation
     history_window_n: int = 5  # sliding window: last N complete turns (ADR-005)
 
+    # Security (spec 09, defense in depth).
+    guardrail_timeout_s: float = 10.0  # layer-2 Flash classifier (>=10s API min)
+    rate_limit_per_minute: int = 30  # layer-5 per-user chat rate limit
+    security_guardrail_enabled: bool = True  # layer 2 toggle (off → fail open)
+
     # Evals (spec 10 / ADR-007). The judge (Gemini Pro) free tier is tight, so
     # the runner throttles RAGAS concurrency and backs off on rate limits.
     evals_judge_max_workers: int = 2  # RAGAS RunConfig concurrency cap

@@ -22,6 +22,10 @@ setup_tracing(endpoint=settings.phoenix_collector_endpoint)
 
 app = FastAPI(title=settings.app_name, version="0.1.0")
 
+# Layer 5 (spec 09) per-user rate limiting is enforced inside the chat router's
+# rate_limited_user dependency (see app/security/rate_limit.py), not via
+# middleware — that keeps FastAPI's early 401 handling intact.
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,

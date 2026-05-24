@@ -39,6 +39,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 
 from app.chat.models import UsageMeta
 from app.retrieval.llm import _extract_text  # shared helper
+from app.security.safety import default_safety_settings, is_safety_block
 
 logger = logging.getLogger(__name__)
 
@@ -47,17 +48,21 @@ class StreamingSession:
     """Holds mutable state that the generator cannot return directly.
 
     After the generator is exhausted (or cancelled), inspect:
-      - ``full_text``   — complete assistant response
-      - ``usage``       — token usage including cached_content_token_count
-      - ``cancelled``   — True if the client disconnected mid-stream
+      - ``full_text``       — complete assistant response
+      - ``usage``           — token usage including cached_content_token_count
+      - ``cancelled``       — True if the client disconnected mid-stream
+      - ``safety_blocked``  — True if Gemini's layer-1 safety filter blocked it
+      - ``finish_reason``   — the model's finish reason (for tracing)
     """
 
-    __slots__ = ("full_text", "usage", "cancelled")
+    __slots__ = ("full_text", "usage", "cancelled", "safety_blocked", "finish_reason")
 
     def __init__(self) -> None:
         self.full_text: str = ""
         self.usage: UsageMeta = UsageMeta()
         self.cancelled: bool = False
+        self.safety_blocked: bool = False
+        self.finish_reason: str | None = None
 
 
 async def stream_chat(
@@ -93,6 +98,9 @@ async def stream_chat(
         temperature=0.0,
         timeout=timeout,
         streaming=True,
+        # Layer 1 (spec 09): block medium-and-above harm categories. A blocked
+        # generation surfaces as a SAFETY finish_reason, detected below.
+        safety_settings=default_safety_settings(),
     )
 
     text_parts: list[str] = []
@@ -118,6 +126,13 @@ async def stream_chat(
                 text_parts.append(content)
                 yield {"type": "token", "content": content}
 
+            # Capture the finish reason (layer 1). LangChain surfaces it in
+            # response_metadata; a SAFETY/PROHIBITED_CONTENT value means Gemini
+            # blocked the generation rather than completing it normally.
+            rm: dict | None = getattr(chunk, "response_metadata", None)
+            if rm and rm.get("finish_reason"):
+                session.finish_reason = str(rm["finish_reason"])
+
             # Accumulate token usage from chunk.usage_metadata (direct attribute).
             # response_metadata does NOT contain token counts; usage_metadata does.
             um: dict | None = getattr(chunk, "usage_metadata", None)
@@ -136,6 +151,13 @@ async def stream_chat(
         yield {"type": "error", "message": str(exc)}
         session.cancelled = True
         return
+
+    # Layer 1: if Gemini blocked for safety, flag it so the router returns a
+    # safe response and logs the incident instead of persisting empty output.
+    if is_safety_block(session.finish_reason):
+        session.safety_blocked = True
+        logger.info("Generation blocked by Gemini safety (finish_reason=%s)",
+                    session.finish_reason)
 
     session.full_text = "".join(text_parts)
     session.usage = UsageMeta(

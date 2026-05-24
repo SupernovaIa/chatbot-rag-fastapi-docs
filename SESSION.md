@@ -4,63 +4,59 @@
 
 ## Bloque actual
 
-**Bloque:** F (Observabilidad consolidada)
+**Bloque:** S (Seguridad)
 **Estado:** gate_pending
-**Fecha apertura:** 2026-05-24 (sesión 11)
-**Última actualización:** 2026-05-24 (cierre de sesión 11)
+**Fecha apertura:** 2026-05-24 (sesión 12)
+**Última actualización:** 2026-05-24 (cierre de sesión 12)
 
-> Bloque E completado ✓ (merge squash PR #17 + tag `08-block-E`). El histórico de bloques anteriores en CHANGELOG.md.
+> Bloque F completado ✓ (merge squash PR #18 + tag `09-block-F`). El histórico de bloques anteriores en CHANGELOG.md.
 
 ## Objetivo del bloque
 
-Observabilidad consolidada: spans completos (`chat_turn` padre + `generate` con tokens/cached/TTFT/coste), módulo de coste por query con pricing Gemini, 3 dashboards Phoenix en `infra/phoenix/dashboards/`, script de medición de impacto del caching y conexión del slash `/dashboard`.
+Defense in depth en 5 capas frente a prompt injection, jailbreaks y fuga de información (spec `09-security-layers.md`, OWASP LLM01/LLM02). Red team con ≥18/20 prompts bloqueados, ≥3 de injection indirecta.
 
 ## Próxima acción concreta
 
-Gate humano: merge squash de la PR + tag `09-block-F`. No mergear ni taggear por agente.
+Gate humano: merge squash de la PR + tag `10-block-S`. No mergear ni taggear por agente.
 
 ## Pendientes en este bloque
 
-- [x] `chat_turn` span padre (envuelve retrieval + generate)
-- [x] `generate` span con prompt_tokens, cached_tokens, output_tokens, ttft_ms, caching_available, cache_hit_rate, cost_usd, input_usd, cached_usd, output_usd, savings_usd
-- [x] `backend/app/observability/cost.py` — `QueryCost` + `compute_cost(usage, model)` con pricing Gemini (Flash y Pro)
-- [x] `docs/cost-model.md` — tabla de precios anclada 2026-05-20, proyección mensual
-- [x] `infra/phoenix/dashboards/{health,quality,cost}.json` — 3 dashboards exportados
-- [x] `scripts/measure_caching_impact.py` + `docs/caching-impact.md`
-- [x] Actualizar `.claude/commands/dashboard.md` para usar Phoenix spans API
-- [x] 23 tests nuevos en `backend/tests/observability/test_cost.py`
-- [ ] `python scripts/measure_caching_impact.py` con stack real → actualizar `docs/caching-impact.md` con números reales (gate humano, requiere `GOOGLE_API_KEY`)
+- [x] Capa 1 · Safety filters de Gemini (`BLOCK_MEDIUM_AND_ABOVE` en 4 categorías) + detección de bloqueo por `finish_reason`
+- [x] Capa 2 · Guardrail Flash (`prompts/guardrail.md` + `app/security/guardrail.py`, clasifica legitimate/suspicious/hostile, fail-open)
+- [x] Capa 3 · System prompt robusto (`prompts/system.md` v1.3 + `<context>` como datos no confiables en `prompts.py`)
+- [x] Capa 4 · Filtro de output (`app/security/output_filter.py`, regex PII con Luhn + redaction incremental con holdback para streaming + detección de leak)
+- [x] Capa 5 · Incidentes en Phoenix (`app/security/incidents.py`, span `security_incident` con `blocking_layer`) + rate limiting por `user_id` 30/min (`app/security/rate_limit.py`, vía `limits`)
+- [x] `security/red-team-checklist.md` (20 hostiles + 3 controles, ≥3 injection indirecta) + `scripts/red_team.py` conectado a `/redteam`
+- [x] Red team contra sistema real: **20/20 bloqueados** (4/4 injection indirecta, 3/3 controles sin falso positivo)
+- [x] Tests `backend/tests/security/` + integración de bloqueo/redaction en `tests/chat/test_router.py`
 
-## Completado en esta sesión (Bloque F, sesión 11)
+## Completado en esta sesión (Bloque S, sesión 12)
 
-- [x] Primer commit de rama: `SESSION.md` — E marcado como completado, F como in_progress.
-- [x] `specs/12-observability-block-f.md` — spec del bloque.
-- [x] `backend/app/observability/cost.py` — `QueryCost` dataclass con `__post_init__` que calcula input_usd, cached_usd, output_usd, total_usd, savings_usd, cache_hit_rate, caching_available. `compute_cost(usage, model)` con fallback a Flash. Pricing anclado 2026-05-20: Flash $0.30/$0.075/$1.25 por M tokens; Pro $1.25/$0.3125/$5.00.
-- [x] `backend/app/chat/router.py` — `chat_turn` span manual: iniciado con `start_span()` antes del retrieval, contexto propagado via `otel_context.attach/detach` para que `asyncio.to_thread` copie el contexto a los sub-spans. Span `generate` iniciado dentro de `event_generator()` como hijo de `chat_turn` via `set_span_in_context`. Captura: `prompt_tokens`, `cached_tokens`, `output_tokens`, `total_tokens`, `ttft_ms` (primer token SSE), `caching_available`, `cache_hit_rate`, `cost_usd`, `input_usd`, `cached_usd`, `output_usd`, `savings_usd`. Cierra ambos spans en `finally`. Cierra el TODO de bloque CH.
-- [x] `docs/cost-model.md` — tabla de precios, desglose por turno, impacto del caching, proyección mensual.
-- [x] `infra/phoenix/dashboards/health.json` — 8 paneles: latencia total/rerank/rewrite, TTFT, fallback rate, throughput, error rate, candidatos dense/sparse.
-- [x] `infra/phoenix/dashboards/quality.json` — 8 paneles: 4 métricas RAGAS con baseline/floor, recall@5/MRR del gate, abstention rate, metadatos del run, regresión vs baseline.
-- [x] `infra/phoenix/dashboards/cost.json` — 8 paneles: coste por turno, tokens por categoría, cache hit rate, ahorro acumulado, desglose pie, coste últimas 24h, top sesiones, disponibilidad caching.
-- [x] `scripts/measure_caching_impact.py` — autentica, envía N turnos SSE, recupera atributos de spans desde Phoenix, genera `docs/caching-impact.md` con tabla + interpretación.
-- [x] `docs/caching-impact.md` — metodología, limitación conocida (Issue #12 / LangChain streaming), estimación teórica, instrucciones de actualización.
-- [x] `.claude/commands/dashboard.md` — actualizado para consultar Phoenix spans API, computar métricas de salud/coste/calidad, renderizar tabla con emojis de alerta.
-- [x] `backend/tests/observability/test_cost.py` — 23 tests: aritmética, caching, Pro, fallback, API pública, turno realista.
+- [x] Primer commit de rama: `SESSION.md` — F marcado como completado, S como in_progress; spec 09 commiteada.
+- [x] `backend/app/security/` — `models.py` (BlockingLayer, Verdict, GuardrailVerdict, OutputScanResult), `safety.py`, `guardrail.py`, `output_filter.py`, `incidents.py`, `rate_limit.py`.
+- [x] `backend/app/chat/generator.py` — `safety_settings` en `ChatGoogleGenerativeAI`; captura `finish_reason`; flag `safety_blocked`.
+- [x] `backend/app/chat/router.py` — guardrail pre-retrieval (hostile → respuesta segura, suspicious → flag), redaction PII del stream, detección de leak post-stream, persistencia del texto redactado, `rate_limited_user` (auth declarada **primero** para preservar el 401), incidentes por capa.
+- [x] `backend/app/main.py` — rate limiting movido a dependencia (sin `BaseHTTPMiddleware`, que rompía el 401 temprano).
+- [x] `prompts/system.md` v1.3 (sección de seguridad), `prompts/guardrail.md` v1.0, `prompts.py` (delimitadores `<context>`).
+- [x] `security/red-team-checklist.md`, `scripts/red_team.py`, `.claude/commands/redteam.md` (conectado al script).
+- [x] `backend/pyproject.toml` — dep `slowapi>=0.1.9` (usa `limits`); `app/config.py` — settings de seguridad.
+- [x] Tests: `backend/tests/security/test_output_filter.py`, `test_guardrail.py`, `test_safety_and_incidents.py` + `TestSecurityLayers` en `tests/chat/test_router.py`.
 
-## Verificación pre-cierre (sesión 11, Bloque F)
+## Verificación pre-cierre (sesión 12, Bloque S)
 
-- `cd backend && uv run ruff check .` → `All checks passed!` ✓
-- `cd backend && uv run pytest -q` → `249 passed` (218 previos + 23 nuevos de cost + 8 de cleanup router) ✓
-- `python scripts/measure_caching_impact.py --dry-run` → imprime 5 queries sin requests ✓ (verificado localmente)
+- `cd backend && uv run ruff check . ../scripts/red_team.py` → `All checks passed!` ✓
+- `cd backend && uv run pytest -q` → `279 passed` ✓
+- `python scripts/red_team.py` contra el stack real → **block rate 20/20** (gate ≥18/20), 4/4 injection indirecta, 3/3 controles ✓ (ver `security/red-team-results.md`)
+- Spans `security_incident` en Phoenix con `blocking_layer`/`blocking_layer_name` verificados (GUARDRAIL + OUTPUT_FILTER) ✓
 
-> **Nota sobre lo NO verificable aquí sin stack levantado:**
-> - Los spans `chat_turn` y `generate` en Phoenix: requieren `docker compose up -d` + `GOOGLE_API_KEY`.
-> - `scripts/measure_caching_impact.py` con datos reales: requiere stack + API key + usuario registrado.
-> - Los dashboards JSON en Phoenix UI: requieren importar manualmente en la UI de Phoenix (no hay endpoint REST de import en self-hosted).
+> **Notas:**
+> - El guardrail es un LLM (Flash) y tiene varianza; el free-tier devuelve a veces respuestas vacías/error transitorias. `red_team.py` reintenta una vez ante vacío/error para que el gate refleje la postura real, no la flakiness. Defensa en profundidad: aunque el guardrail dejara pasar un caso, la capa 3 (system prompt) también rechaza.
+> - Rate limiting en memoria (single-worker dev/free-tier). Para escalar a varios workers: cambiar `MemoryStorage` por `RedisStorage`.
 
-## Gate de revisión (Bloque F)
+## Gate de revisión (Bloque S)
 
-- **Criterio:** spans completos en Phoenix con árbol correcto (chat_turn → retrieve/{rewrite,hybrid_search,rerank} + generate); módulo de coste con tests; dashboards como specs; `/dashboard` skill operativo.
-- **Resultado:** **pendiente** (gate humano — merge PR + tag `09-block-F`).
+- **Criterio:** 5 capas implementadas según spec 09; `red_team.py` bloquea ≥18/20 sin fugar PII ni system prompt; ≥3 injection indirecta neutralizada; incidentes con `blocking_layer` en Phoenix; rate limiting por `user_id`.
+- **Resultado:** **pendiente** (gate humano — merge PR + tag `10-block-S`).
 
 ## Blockers
 

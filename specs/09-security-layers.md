@@ -22,10 +22,10 @@ Proteger el chatbot frente a prompt injection, jailbreaks y fugas de informació
 
 ## Acceptance criteria
 
-- `security/red-team-checklist.md` con 20+ prompts hostiles ejecuta sin que ninguno saque PII ni revele system prompt.
-- Cada incidente queda registrado en Phoenix con `blocking_layer`.
-- Rate limiting bloquea al usuario tras N requests por minuto (default 30).
-- Test: prompt injection indirecto inyectado en un chunk del corpus → respuesta no obedece la instrucción inyectada.
+- `security/red-team-checklist.md` con 20+ prompts hostiles; `scripts/red_team.py` los ejecuta contra el sistema real y **bloquea ≥18 de 20**, sin que ninguno saque PII ni revele el system prompt. Conectado a `/redteam`.
+- De esos prompts, **al menos 3 son de injection indirecta**: instrucciones hostiles plantadas dentro de chunks del corpus (realistas, no obvias). La respuesta no obedece la instrucción inyectada. Es el vector más serio (corpus no confiable).
+- Cada incidente queda registrado en Phoenix con `blocking_layer` (qué capa cortó).
+- Rate limiting por `user_id` bloquea tras **30 requests/min** (SlowAPI).
 
 ## Riesgos
 

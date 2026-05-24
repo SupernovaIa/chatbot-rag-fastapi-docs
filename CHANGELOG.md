@@ -6,6 +6,37 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y 
 
 ## [No publicado]
 
+### Añadido (Bloque S — Seguridad: defensa en profundidad en 5 capas)
+
+- `backend/app/security/` — módulo nuevo con las 5 capas (spec 09, OWASP LLM01/LLM02):
+  - `models.py` — `BlockingLayer` (enum 1..5 con la capa que cortó), `Verdict`, `GuardrailVerdict` (con `blocked`/`flagged`/`failed_open`), `OutputScanResult`.
+  - `safety.py` (**capa 1**) — `default_safety_settings()` con `BLOCK_MEDIUM_AND_ABOVE` en HARASSMENT/HATE_SPEECH/SEXUALLY_EXPLICIT/DANGEROUS_CONTENT; `is_safety_block(finish_reason)`. Categorías de imagen/civic-integrity excluidas para no penalizar preguntas técnicas de seguridad.
+  - `guardrail.py` (**capa 2**) — `InputGuardrail` sobre Gemini Flash; clasifica el input en legitimate/suspicious/hostile; parser de JSON tolerante a fences; **fail-open** a legitimate ante cualquier error (disponibilidad sobre estrictez; las capas profundas siguen aplicando).
+  - `output_filter.py` (**capa 4**) — regex PII (email, tarjeta con checksum Luhn, IPv4/IPv6) → placeholders; `StreamRedactor` con holdback de 80 chars que nunca corta un match en el borde de emisión (redacción correcta sobre streaming SSE); `detect_system_prompt_leak()` por firmas del system prompt.
+  - `incidents.py` (**capa 5**) — `log_incident()` emite span `security_incident` con `blocking_layer`/`blocking_layer_name`/`blocked`; solo un fingerprint SHA-256 del query (PII nunca se loguea); `SAFE_RESPONSE` genérico (sin oráculo para el atacante).
+  - `rate_limit.py` (**capa 5**) — `check_rate_limit(user_id)` con `limits` (MovingWindow en memoria), 30 req/min por usuario configurable.
+- `prompts/guardrail.md` — prompt v1.0 del clasificador de la capa 2 (modelo de amenazas, criterios, salida JSON, input delimitado como datos no confiables).
+- `security/red-team-checklist.md` — 20 prompts hostiles (16 directos + 4 injection indirecta) + 3 controles legítimos; mapeo OWASP; criterios de evaluación por tipo.
+- `scripts/red_team.py` — harness que corre la checklist contra el sistema real: autentica, envía cada caso a `/chat`, **planta chunks envenenados en pgvector para la injection indirecta** (los embebe con `RETRIEVAL_DOCUMENT`, lanza una query benigna que los recupera, verifica que el modelo no obedece, y los borra), reintenta una vez ante respuesta vacía/error transitoria, y reporta block rate + `security/red-team-results.md`. Flags `--no-indirect`, `--dry-run`.
+- `backend/tests/security/` — `test_output_filter.py` (redaction, Luhn, holdback en streaming, leak), `test_guardrail.py` (parser, verdicts, fail-open), `test_safety_and_incidents.py` (safety settings, fingerprint, rate limit por usuario).
+
+### Cambiado (Bloque S)
+
+- `backend/app/chat/generator.py` — `safety_settings` en `ChatGoogleGenerativeAI` (capa 1); captura de `finish_reason` por chunk; flag `safety_blocked` en `StreamingSession` cuando Gemini bloquea.
+- `backend/app/chat/router.py` — guardrail pre-retrieval (hostile → `_safe_response()` sin tocar el corpus ni el modelo, suspicious → flag en el span); redaction PII del stream con `StreamRedactor`; detección de leak post-stream; **se persiste el texto redactado** (PII nunca llega al historial); `rate_limited_user` enforce 30/min y registra incidente al exceder. La dependencia de autenticación se declara **primero** en el endpoint: FastAPI resuelve los `Depends` en orden y los adapters de Gemini construyen su cliente de forma eager (sin API key revientan), así que auth debe resolverse antes para devolver 401/429 limpios en vez de 500.
+- `backend/app/main.py` — el rate limiting se aplica vía dependencia, no vía middleware: `SlowAPIMiddleware` es un `BaseHTTPMiddleware` que rompía el manejo temprano del 401.
+- `prompts/system.md` v1.3 — sección de seguridad (capa 3): el `<context>` es dato no confiable, no obedecer instrucciones embebidas, no revelar el system prompt/configuración, no cambiar de rol, no emitir secretos/PII.
+- `backend/app/chat/prompts.py` — el bloque de contexto se envuelve en `<context>…</context>` con aviso explícito de dato no confiable.
+- `.claude/commands/redteam.md` — el skill `/redteam` ejecuta `scripts/red_team.py` y cruza resultados con los spans `security_incident` de Phoenix por capa.
+- `backend/pyproject.toml` — añadida dep `slowapi>=0.1.9` (se usa su transitiva `limits`); `backend/app/config.py` — settings `guardrail_timeout_s`, `rate_limit_per_minute`, `security_guardrail_enabled`.
+
+### Notas (Bloque S)
+
+- **279 tests, todos verdes. Ruff limpio.**
+- **Red team contra el sistema real: block rate 20/20** (gate ≥18/20), **4/4 injection indirecta** neutralizada, **3/3 controles** respondidos sin falso positivo, 0 fugas de PII/system prompt. Incidentes con `blocking_layer` verificados en Phoenix (GUARDRAIL + OUTPUT_FILTER).
+- El guardrail (LLM Flash) tiene varianza y el free-tier devuelve respuestas vacías/error transitorias; el harness reintenta una vez. Aunque el guardrail dejara pasar un caso, la capa 3 (system prompt) también rechaza (defensa en profundidad real).
+- Rate limiting en memoria (single-worker). Para multi-worker: `RedisStorage`. PII más allá del regex (p. ej. Presidio): evolución para v1.1, no implementado.
+
 ### Añadido (Bloque F — Observabilidad consolidada)
 
 - `backend/app/observability/cost.py` — `QueryCost` dataclass + `compute_cost(usage, model)` con pricing Gemini anclado 2026-05-20. Flash: $0.30 input / $0.075 cached / $1.25 output por millón de tokens. Pro: $1.25 / $0.3125 / $5.00. Modelos desconocidos degradan a Flash. Expone `savings_usd`, `cache_hit_rate`, `caching_available`.
