@@ -633,3 +633,28 @@ async def get_session(
             for m in messages
         ],
     )
+
+
+# ---------------------------------------------------------------------------
+# DELETE /chat/sessions/{session_id}
+# ---------------------------------------------------------------------------
+
+
+@router.delete("/sessions/{session_id}", status_code=204)
+async def delete_session(
+    session_id: UUID,
+    store: ChatHistoryStore = Depends(get_store),
+    current_user: User = Depends(current_active_user),
+) -> None:
+    """Delete a session owned by the authenticated user (and its messages).
+
+    Symmetric to ``GET /chat/sessions/{id}``: 404 if it does not exist, 403 if
+    it belongs to another user. Messages are removed via ON DELETE CASCADE.
+    """
+    session = await asyncio.to_thread(store.get_session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if session.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    await asyncio.to_thread(store.delete_session, session_id)

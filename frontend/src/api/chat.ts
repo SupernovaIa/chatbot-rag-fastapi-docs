@@ -63,3 +63,12 @@ export async function getSession(sessionId: string): Promise<SessionDetailOut> {
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
+
+/** DELETE /chat/sessions/{id} — delete a session owned by the current user. */
+export async function deleteSession(sessionId: string): Promise<void> {
+  const res = await fetch(`${BASE}/chat/sessions/${sessionId}`, {
+    method: "DELETE",
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+}

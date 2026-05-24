@@ -175,6 +175,19 @@ class ChatHistoryStore:
             for r in rows
         ]
 
+    def delete_session(self, session_id: UUID) -> None:
+        """Delete a session and (via ON DELETE CASCADE) all its messages.
+
+        The cascade is defined on ``chat_messages.session_id`` in migration 0002,
+        so removing the session row removes its messages atomically.
+        """
+        with self._engine.begin() as conn:
+            conn.execute(
+                text("DELETE FROM chat_sessions WHERE id = :id"),
+                {"id": str(session_id)},
+            )
+        logger.debug("Deleted session %s", session_id)
+
     def next_turn_idx(self, session_id: UUID) -> int:
         """Best-effort estimate of the next turn_idx (no lock, read-only).
 

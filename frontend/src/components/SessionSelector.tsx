@@ -9,7 +9,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { listSessions, type SessionOut } from "../api/chat";
+import { deleteSession, listSessions, type SessionOut } from "../api/chat";
 
 interface SessionSelectorProps {
   currentSessionId: string | null;
@@ -48,6 +48,25 @@ export default function SessionSelector({
     fetchSessions();
   }, [fetchSessions, refreshTrigger]);
 
+  const handleDelete = useCallback(
+    async (sessionId: string) => {
+      if (!window.confirm("¿Borrar esta conversación? No se puede deshacer.")) {
+        return;
+      }
+      try {
+        await deleteSession(sessionId);
+        // If the deleted session was the active one, reset to a new chat.
+        if (sessionId === currentSessionId) {
+          onSelectSession(null);
+        }
+        await fetchSessions();
+      } catch {
+        setError("No se pudo borrar la conversación");
+      }
+    },
+    [currentSessionId, onSelectSession, fetchSessions],
+  );
+
   return (
     <nav style={styles.nav} aria-label="Sesiones de chat">
       <div style={styles.header}>
@@ -76,19 +95,34 @@ export default function SessionSelector({
           <p style={styles.hint}>Sin conversaciones previas</p>
         )}
         {sessions.map((s) => (
-          <button
+          <div
             key={s.id}
             role="listitem"
-            onClick={() => onSelectSession(s.id)}
             style={{
-              ...styles.item,
+              ...styles.row,
               ...(s.id === currentSessionId ? styles.itemActive : {}),
             }}
-            aria-current={s.id === currentSessionId ? "page" : undefined}
-            aria-label={`Conversación del ${formatDate(s.updated_at)}`}
           >
-            <span style={styles.itemDate}>{formatDate(s.updated_at)}</span>
-          </button>
+            <button
+              onClick={() => onSelectSession(s.id)}
+              style={styles.item}
+              aria-current={s.id === currentSessionId ? "page" : undefined}
+              aria-label={`Conversación del ${formatDate(s.updated_at)}`}
+            >
+              <span style={styles.itemDate}>{formatDate(s.updated_at)}</span>
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                handleDelete(s.id);
+              }}
+              style={styles.deleteBtn}
+              aria-label={`Borrar conversación del ${formatDate(s.updated_at)}`}
+              title="Borrar conversación"
+            >
+              ×
+            </button>
+          </div>
         ))}
       </div>
     </nav>
@@ -157,18 +191,41 @@ const styles = {
     gap: "0.15rem",
   } as React.CSSProperties,
 
+  row: {
+    display: "flex",
+    alignItems: "center",
+    border: "1px solid transparent",
+    borderRadius: 6,
+    transition: "background 0.12s",
+  } as React.CSSProperties,
+
   item: {
+    flex: 1,
+    minWidth: 0,
     display: "flex",
     flexDirection: "column" as const,
     alignItems: "flex-start",
     padding: "0.5rem 0.65rem",
     background: "none",
-    border: "1px solid transparent",
-    borderRadius: 6,
+    border: "none",
     cursor: "pointer",
     textAlign: "left" as const,
-    width: "100%",
-    transition: "background 0.12s",
+    fontFamily: "var(--font-sans)",
+  } as React.CSSProperties,
+
+  deleteBtn: {
+    flexShrink: 0,
+    width: 26,
+    height: 26,
+    marginRight: "0.3rem",
+    padding: 0,
+    background: "none",
+    border: "none",
+    borderRadius: 4,
+    color: "var(--muted)",
+    fontSize: "1.1rem",
+    lineHeight: 1,
+    cursor: "pointer",
     fontFamily: "var(--font-sans)",
   } as React.CSSProperties,
 
