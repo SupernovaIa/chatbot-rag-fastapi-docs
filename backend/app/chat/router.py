@@ -67,6 +67,11 @@ from app.retrieval.hybrid import PgVectorHybridSearcher
 from app.retrieval.llm import GeminiChatAdapter, QueryEmbeddingsAdapter
 from app.retrieval.models import Turn
 from app.retrieval.orchestrator import retrieve
+from app.security.guardrail import InputGuardrail
+from app.security.incidents import SAFE_RESPONSE, log_incident
+from app.security.models import BlockingLayer
+from app.security.output_filter import StreamRedactor, detect_system_prompt_leak
+from app.security.rate_limit import check_rate_limit
 
 logger = logging.getLogger(__name__)
 
@@ -152,22 +157,80 @@ def get_rerank_llm(settings: Settings = Depends(get_settings)) -> GeminiChatAdap
     )
 
 
+def get_guardrail(settings: Settings = Depends(get_settings)) -> InputGuardrail:
+    """Layer-2 guardrail backed by a Flash adapter (fail-fast, no SDK retries)."""
+    # NB: do not pass max_retries here — that kwarg makes langchain build the
+    # Gemini client eagerly, which would turn an unauthenticated request into a
+    # 500 (no key) instead of a clean 401. The guardrail fails open on any error
+    # (incl. timeout), so the fast-fail behaviour is preserved regardless.
+    adapter = GeminiChatAdapter(
+        api_key=settings.google_api_key,
+        model=settings.gemini_flash_model,
+        timeout=settings.guardrail_timeout_s,
+    )
+    return InputGuardrail(adapter)
+
+
+async def rate_limited_user(
+    current_user: User = Depends(current_active_user),
+) -> User:
+    """Authenticate, then enforce the layer-5 per-user rate limit.
+
+    Runs after ``current_active_user`` so an unauthenticated request still gets
+    a clean 401. On exceed, logs a layer-5 incident and raises HTTP 429.
+    """
+    if not check_rate_limit(str(current_user.id)):
+        log_incident(
+            layer=BlockingLayer.RATE_LIMIT,
+            blocked=True,
+            query="",
+            user_id=str(current_user.id),
+            reason="per-user rate limit exceeded",
+        )
+        raise HTTPException(
+            status_code=429,
+            detail=SAFE_RESPONSE,
+            headers={"Retry-After": "60"},
+        )
+    return current_user
+
+
 # ---------------------------------------------------------------------------
 # POST /chat
 # ---------------------------------------------------------------------------
+
+
+def _safe_response(message: str = SAFE_RESPONSE) -> EventSourceResponse:
+    """Return an SSE stream carrying a single safe message + empty citations.
+
+    Used when a security layer blocks the request: the client sees a normal
+    (but refusing) answer, with no partial/hostile content and no leak.
+    """
+
+    async def _gen():
+        yield {"data": json.dumps({"type": "token", "content": message})}
+        yield {"data": json.dumps({"type": "citations", "items": []})}
+
+    return EventSourceResponse(_gen())
 
 
 @router.post("/")
 async def chat_endpoint(  # noqa: PLR0913
     body: ChatRequest,
     request: Request,
+    # current_user (auth + layer-5 rate limit) is declared FIRST so it resolves
+    # before the Gemini-adapter dependencies. Those construct their client
+    # eagerly and would raise (turning a missing-auth request into a 500) if
+    # they resolved before authentication; FastAPI resolves Depends params in
+    # declaration order, so auth must come first to win with a clean 401/429.
+    current_user: User = Depends(rate_limited_user),
     settings: Settings = Depends(get_settings),
     store: ChatHistoryStore = Depends(get_store),
     searcher: PgVectorHybridSearcher = Depends(get_searcher),
     embeddings: QueryEmbeddingsAdapter = Depends(get_embeddings),
     rewrite_llm: GeminiChatAdapter = Depends(get_rewrite_llm),
     rerank_llm: GeminiChatAdapter = Depends(get_rerank_llm),
-    current_user: User = Depends(current_active_user),
+    guardrail: InputGuardrail = Depends(get_guardrail),
 ) -> EventSourceResponse:
     """Stream a RAG response for *body.query*.
 
@@ -200,7 +263,44 @@ async def chat_endpoint(  # noqa: PLR0913
     )
     _ctx_token = otel_context.attach(set_span_in_context(chat_turn_span))
 
+    # Track the layer-2 guardrail verdict so suspicious turns can be flagged on
+    # the span / incident even though they are still answered.
+    guardrail_flagged = False
+
     try:
+        # ------------------------------------------------------------------ #
+        # Layer 2: input guardrail. Runs before any retrieval/generation so a #
+        # hostile prompt never reaches the model or the corpus.               #
+        # ------------------------------------------------------------------ #
+        if settings.security_guardrail_enabled:
+            verdict = await asyncio.to_thread(guardrail.classify, body.query)
+            chat_turn_span.set_attribute("guardrail_verdict", verdict.verdict.value)
+            if verdict.failed_open:
+                chat_turn_span.set_attribute("guardrail_failed_open", True)
+            if verdict.blocked:
+                chat_turn_span.set_attribute("blocking_layer", int(BlockingLayer.GUARDRAIL))
+                log_incident(
+                    layer=BlockingLayer.GUARDRAIL,
+                    blocked=True,
+                    query=body.query,
+                    user_id=str(current_user.id),
+                    session_id=str(body.session_id or ""),
+                    reason=verdict.reason or "hostile input",
+                )
+                chat_turn_span.set_attribute("blocked", True)
+                chat_turn_span.end()
+                return _safe_response()
+            if verdict.flagged:
+                guardrail_flagged = True
+                log_incident(
+                    layer=BlockingLayer.GUARDRAIL,
+                    blocked=False,
+                    query=body.query,
+                    user_id=str(current_user.id),
+                    session_id=str(body.session_id or ""),
+                    reason=verdict.reason or "suspicious input",
+                )
+
         # 1. Resolve / create session
         session_id = await asyncio.to_thread(
             store.get_or_create_session, body.session_id, current_user.id
@@ -302,6 +402,10 @@ async def chat_endpoint(  # noqa: PLR0913
         stream_start = time.perf_counter()
         ttft_ms: float | None = None
 
+        # Layer 4: redact PII from the token stream as it flows (holds back an
+        # in-flight tail so a forming pattern is never emitted un-redacted).
+        redactor = StreamRedactor()
+
         try:
             # Stream tokens
             async for event in stream_chat(
@@ -316,7 +420,39 @@ async def chat_endpoint(  # noqa: PLR0913
                 if ttft_ms is None and isinstance(event, dict) and event.get("type") == "token":
                     ttft_ms = (time.perf_counter() - stream_start) * 1000.0
 
-                yield {"data": json.dumps(event)}
+                # Pass token content through the layer-4 redactor; forward other
+                # event types (error) unchanged.
+                if isinstance(event, dict) and event.get("type") == "token":
+                    safe = redactor.feed(event.get("content", ""))
+                    if safe:
+                        yield {"data": json.dumps({"type": "token", "content": safe})}
+                else:
+                    yield {"data": json.dumps(event)}
+
+            # ---------------------------------------------------------- #
+            # Layer 1: Gemini safety filter blocked the generation.       #
+            # ---------------------------------------------------------- #
+            if gen_session.safety_blocked:
+                generate_span.set_attribute("safety_blocked", True)
+                generate_span.set_attribute("finish_reason", gen_session.finish_reason or "")
+                chat_turn_span.set_attribute("blocking_layer", int(BlockingLayer.SAFETY_FILTER))
+                chat_turn_span.set_attribute("blocked", True)
+                log_incident(
+                    layer=BlockingLayer.SAFETY_FILTER,
+                    blocked=True,
+                    query=body.query,
+                    user_id=str(current_user.id),
+                    session_id=str(_session_id),
+                    reason=f"gemini safety finish_reason={gen_session.finish_reason}",
+                )
+                yield {"data": json.dumps({"type": "token", "content": SAFE_RESPONSE})}
+                yield {"data": json.dumps({"type": "citations", "items": []})}
+                return
+
+            # Flush the redactor tail before emitting citations.
+            tail = redactor.flush()
+            if tail:
+                yield {"data": json.dumps({"type": "token", "content": tail})}
 
             if gen_session.cancelled:
                 logger.debug(
@@ -337,12 +473,46 @@ async def chat_endpoint(  # noqa: PLR0913
             # Emit citations as final event
             yield {"data": json.dumps({"type": "citations", "items": citations_payload})}
 
-            # Persist the completed turn (sync → thread pool).
+            # ---------------------------------------------------- #
+            # Layer 4: post-stream audit on the redacted answer.    #
+            # PII was already redacted inline; here we record the   #
+            # counts and run the system-prompt-leak detector.       #
+            # ---------------------------------------------------- #
+            safe_text = redactor.redacted_text
+            if redactor.pii_found:
+                generate_span.set_attribute("pii_redacted", True)
+                for cat, n in redactor.counts.items():
+                    generate_span.set_attribute(f"pii_redacted.{cat}", n)
+                log_incident(
+                    layer=BlockingLayer.OUTPUT_FILTER,
+                    blocked=False,
+                    query=body.query,
+                    user_id=str(current_user.id),
+                    session_id=str(_session_id),
+                    reason="pii redacted from output",
+                    detail=dict(redactor.counts),
+                )
+            if detect_system_prompt_leak(safe_text):
+                generate_span.set_attribute("system_prompt_leak", True)
+                chat_turn_span.set_attribute("blocking_layer", int(BlockingLayer.OUTPUT_FILTER))
+                log_incident(
+                    layer=BlockingLayer.OUTPUT_FILTER,
+                    blocked=False,
+                    query=body.query,
+                    user_id=str(current_user.id),
+                    session_id=str(_session_id),
+                    reason="system prompt leak detected in output",
+                )
+            if guardrail_flagged:
+                chat_turn_span.set_attribute("guardrail_flagged", True)
+
+            # Persist the completed turn (sync → thread pool). We store the
+            # redacted text so PII is never written to the history DB.
             turn_idx = await asyncio.to_thread(
                 store.save_turn,
                 _session_id,
                 body.query,
-                gen_session.full_text,
+                safe_text,
                 citations_payload,
             )
 
