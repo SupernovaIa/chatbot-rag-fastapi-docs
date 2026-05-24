@@ -101,13 +101,13 @@ jobs:
             --markdown ../eval_report.md \
             --json ../eval_full_metrics.json
 
-      # Refresh the gate baseline on the SAME subset the PR gate runs (ci_subset)
+      # Refresh the gate baseline on the SAME subset the PR gate runs (ci_gate)
       # so the regression check stays apples-to-apples.
-      - name: Refresh gate baseline (ci_subset)
+      - name: Refresh gate baseline (ci_gate)
         working-directory: backend
         run: |
           uv run python -m app.evals.cli \
-            --subset ci_subset \
+            --subset ci_gate \
             --update-baseline ../baseline_metrics.json
 
       - name: Upload eval report artifact

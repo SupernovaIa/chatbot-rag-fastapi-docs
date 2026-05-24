@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from app.evals.loader import (
+    CI_GATE_IDS,
     CI_SUBSET_IDS,
     GoldExample,
     load_gold,
@@ -49,6 +50,20 @@ def test_select_subset_covers_all_types_and_preserves_order() -> None:
     assert {e.type for e in subset} == {
         "factual", "paraphrase", "multi_source", "no_se", "multi_turn"
     }
+
+
+def test_ci_gate_subset_is_six_and_covers_all_types() -> None:
+    gold = load_gold()
+    gate = select_subset(gold, ids=CI_GATE_IDS)
+    assert len(gate) == 6
+    assert {e.type for e in gate} == {
+        "factual", "paraphrase", "multi_source", "no_se", "multi_turn"
+    }
+    # Must include a multi_source and the no_se (spec 10 gate requirement).
+    assert any(e.type == "multi_source" for e in gate)
+    assert any(e.type == "no_se" for e in gate)
+    # Every gate id is also part of the broader ci_subset.
+    assert set(CI_GATE_IDS) <= set(CI_SUBSET_IDS)
 
 
 def test_select_subset_raises_on_missing_id() -> None:

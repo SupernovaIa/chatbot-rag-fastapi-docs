@@ -72,8 +72,8 @@ def _build_retriever(settings, *, top_k: int):
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--subset", choices=["ci_subset", "full"], default="ci_subset",
-        help="ci_subset (PR gate) or full (40 examples, nightly).",
+        "--subset", choices=["ci_gate", "ci_subset", "full"], default="ci_gate",
+        help="ci_gate (6 ej., PR gate), ci_subset (14 ej.), or full (40, nightly).",
     )
     parser.add_argument("--top-k", type=int, default=5)
     parser.add_argument("--no-judge", action="store_true", help="Skip RAGAS metrics.")
@@ -88,7 +88,7 @@ def main(argv: list[str] | None = None) -> int:
     from app.config import get_settings
     from app.evals.generator import GeminiAnswerGenerator
     from app.evals.judge import RagasGeminiJudge
-    from app.evals.loader import load_gold, select_subset
+    from app.evals.loader import CI_GATE_IDS, CI_SUBSET_IDS, load_gold, select_subset
     from app.evals.report import (
         evaluate_gate,
         load_baseline,
@@ -104,8 +104,10 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     examples = load_gold()
-    if args.subset == "ci_subset":
-        examples = select_subset(examples)
+    if args.subset == "ci_gate":
+        examples = select_subset(examples, ids=CI_GATE_IDS)
+    elif args.subset == "ci_subset":
+        examples = select_subset(examples, ids=CI_SUBSET_IDS)
 
     try:
         retriever_fn = _build_retriever(settings, top_k=args.top_k)

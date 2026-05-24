@@ -39,7 +39,9 @@ El runner y los tests se implementan primero. Antes de cablear ningún workflow:
 
 ### CI (tras aprobar la estrategia)
 
-- [ ] `.github/workflows/eval.yml` (PR): levanta Postgres como service, indexa corpus de prueba, corre el subset (`ci_subset`), comenta el PR con tabla de métricas vs baseline de `main`, falla si no se cumple el threshold.
+- [ ] `.github/workflows/eval.yml` (PR): levanta Postgres como service, indexa corpus de prueba, corre el subset del gate, comenta el PR con tabla de métricas vs baseline de `main`, falla si no se cumple el threshold.
+
+> **Nota (sesión 10, sin ADR):** el subset del **gate del PR** es de **6 ejemplos** (`CI_GATE_IDS`: g-01, g-03, g-16, g-24, g-31, g-36 — cubre los 5 tipos, incluye un multi_source y el no_se), no los ~15 que planteaba el arranque. Motivo: el juez Gemini 3 Pro (~50 s/llamada) más la latencia runner→API hacen que el `ci_subset` completo (12 answerable × 4 métricas) supere el presupuesto de <10 min en CI (medido ~13-14 min). El baseline del gate se mide sobre esos mismos 6 (apples-to-apples con la regresión). La suite completa (40) y el `ci_subset` (14) siguen corriéndose en la nocturna / disponibles vía `--subset`.
 - [ ] `.github/workflows/eval-nightly.yml`: suite completa (40 ejemplos) en `schedule: cron` + `workflow_dispatch`, actualiza la baseline de `main`.
 - [ ] Branch protection + secret `GOOGLE_API_KEY`.
 - [ ] **Mitigación del free tier:** subset en el gate del PR; suite completa solo nocturna. Backoff y degradación clara si se satura el rate limit.

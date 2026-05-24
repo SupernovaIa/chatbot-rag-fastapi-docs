@@ -34,7 +34,7 @@ jobs:
   evals:
     name: Eval gate (ci_subset)
     runs-on: ubuntu-latest
-    timeout-minutes: 12  # kill switch; target healthy run < 10 min
+    timeout-minutes: 12  # kill switch; healthy ci_gate run targets < 10 min
     env:
       DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/chatbot_rag
       GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
@@ -130,7 +130,7 @@ jobs:
         working-directory: backend
         run: |
           uv run python -m app.evals.cli \
-            --subset ci_subset \
+            --subset ci_gate \
             --baseline ../baseline_metrics.json \
             --markdown ../eval_report.md \
             --json ../eval_metrics.json

@@ -6,6 +6,14 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y 
 
 ## [No publicado]
 
+### Gate humano — fixes y decisiones (Bloque E, sesión 10)
+- **fix(retrieval):** el LLM-reranker (y el rewriter) caían **siempre** al fallback por drift de la API de Gemini (deadline mínimo 10s; spec 03 usaba 5s/1.5s). Reranker recortado a 8 candidatos, `rerank_timeout_s` 15s, `rewrite_timeout_s` 10s, `max_retries=0` (un 504 degradaba a ~2min por reintentos). Medido: p50 10.0s / p95 10.9s, 0/7 fallbacks.
+- **fix(chat):** prompt de generación v1.2 fuerza respuesta en español (respondía en inglés en parte de los turnos). faithfulness 0.84→0.95 tras el fix.
+- **fix(evals):** detector de abstención reconoce marcadores en inglés (sigue siendo frágil; flag estructurado pendiente para v1.1); `gemini_pro_model` corregido a `gemini-3-pro-preview` (el id sin sufijo daba 404); juez timeout 120→300s.
+- **refactor(evals):** el gate bloquea solo sobre las 4 métricas del juez; recall@5/MRR pasan a advisory (el match determinista por `(source, section)` es demasiado estricto para multi_source).
+- **feat(evals):** floors del juez (faithfulness 0.80, answer_relevancy 0.70, context_precision 0.80, context_recall 0.85) + regresión **absoluta** (>0.07 vs baseline). `baseline_metrics.json` pinneado sobre `ci_subset` (faith 0.945 / ar 0.846 / cp 0.987 / cr 0.958).
+- **ci(evals):** el **gate del PR corre un subset de 6 ejemplos** (`CI_GATE_IDS`, cubre los 5 tipos + 1 multi_source + el no_se) en vez del `ci_subset` (14): el juez Gemini 3 Pro (~50 s/llamada) + la latencia runner→API hacían que el `ci_subset` superara el presupuesto de <10 min en CI (~13-14 min medido). `eval.yml` cachea el índice pgvector con `actions/cache` (clave = hash del corpus + modelo de embeddings; ahorra el embedding, ~40 s); `max_workers=6`; Azurite vía `docker run --skipApiVersionCheck` (los service containers no admiten override del command). `eval-nightly.yml` corre la suite completa (40) como monitorización y refresca el baseline del gate sobre `ci_gate` (apples-to-apples). Branch protection en `main` con el check `Eval gate (ci_subset)` + secret `GOOGLE_API_KEY`.
+
 ### Añadido (Bloque E — Evaluación + CI con gate del PR)
 - `backend/app/evals/` — módulo de evaluación (spec 10 / ADR-007):
   - `loader.py` — carga `gold.jsonl` (40 ej.) en `GoldExample` (normaliza claves `_es` → modelo inglés); `CI_SUBSET_IDS` (15 ej. representativos, cubre los 5 tipos) y `select_subset` (falla si falta un id).

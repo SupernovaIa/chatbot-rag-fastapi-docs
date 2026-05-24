@@ -23,14 +23,28 @@ from app.retrieval.models import Turn
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_GOLD_PATH = _REPO_ROOT / "corpus" / "sample" / "fastapi-docs" / "evals" / "gold.jsonl"
 
-# Representative subset for the PR gate: covers all five types without
-# exhausting the Gemini Pro free tier (spec 10). Selected by id, reviewed.
+# Representative subset that covers all five types. Used by the parametrized
+# unit tests (cheap, fakes) and as the mid-tier reference (spec 10).
 CI_SUBSET_IDS: tuple[str, ...] = (
     "g-01", "g-02", "g-03", "g-04", "g-05",  # factual
     "g-16", "g-17", "g-18",                   # paraphrase
     "g-24", "g-25",                           # multi_source
     "g-31", "g-32",                           # no_se
     "g-36", "g-37",                           # multi_turn
+)
+
+# The 6-example subset the LIVE PR gate runs. Kept at 6 (not 14) so a healthy
+# gate finishes under ~10 min on GitHub runners: the Gemini Pro judge is the
+# bottleneck (~50s/call), and runner→API latency is higher than local, so the
+# full ci_subset overran the CI time budget (spec 10). Covers all five types,
+# including one multi_source and the no_se. The gate baseline is measured on
+# exactly these ids so the regression check stays apples-to-apples.
+CI_GATE_IDS: tuple[str, ...] = (
+    "g-01", "g-03",  # factual
+    "g-16",          # paraphrase
+    "g-24",          # multi_source
+    "g-31",          # no_se
+    "g-36",          # multi_turn
 )
 
 

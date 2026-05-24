@@ -13,7 +13,9 @@ Execute these steps:
 4. Run the runner inside the backend container:
    - Full suite (40 examples, judge included):
      `docker compose exec backend python -m app.evals.cli --subset full`
-   - PR subset (representative ~15 examples, free-tier friendly):
+   - PR gate subset (6 examples, all 5 types, fits the CI <10 min budget):
+     `docker compose exec backend python -m app.evals.cli --subset ci_gate`
+   - Mid-tier subset (14 examples):
      `docker compose exec backend python -m app.evals.cli --subset ci_subset`
    - To compare against the recorded main baseline, append `--baseline baseline_metrics.json`.
 5. Stream the output so the user sees the Markdown report as it prints.
