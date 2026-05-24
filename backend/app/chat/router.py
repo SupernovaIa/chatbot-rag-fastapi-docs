@@ -23,6 +23,17 @@ Settings → GeminiChatAdapter (rerank)
 
 All retrieval adapters are reused from the retrieval router to avoid
 constructing duplicate clients on each request.
+
+Span hierarchy (block F, ADR-008)
+----------------------------------
+chat_turn  (manual span, starts before retrieval, ends after generate)
+├── chat_retrieve  (@traced wrapper)
+│   └── retrieve   (@traced orchestrator)
+│       ├── rewrite       (@traced)
+│       ├── hybrid_search (@traced, via PgVectorHybridSearcher.search)
+│       └── rerank        (@traced)
+└── generate  (manual span, started/ended inside event_generator)
+    └── ChatGoogleGenerativeAI  (auto-instrumented by LangChainInstrumentor)
 """
 
 from __future__ import annotations
@@ -30,10 +41,14 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from functools import lru_cache
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from opentelemetry import context as otel_context
+from opentelemetry import trace as otel_trace
+from opentelemetry.trace import set_span_in_context
 from pydantic import BaseModel, Field
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
@@ -46,7 +61,8 @@ from app.chat.models import Citation
 from app.chat.prompts import build_prompt, citations_from_candidates
 from app.chat.store import ChatHistoryStore
 from app.config import Settings, get_settings
-from app.observability.tracing import traced
+from app.observability.cost import compute_cost
+from app.observability.tracing import get_tracer, traced
 from app.retrieval.hybrid import PgVectorHybridSearcher
 from app.retrieval.llm import GeminiChatAdapter, QueryEmbeddingsAdapter
 from app.retrieval.models import Turn
@@ -160,46 +176,76 @@ async def chat_endpoint(  # noqa: PLR0913
 
     The retrieval phases run synchronously in a thread-pool executor so they
     don't block the event loop. The generation phase is fully async (astream).
+
+    Span hierarchy emitted (block F):
+      chat_turn → chat_retrieve → retrieve → {rewrite, hybrid_search, rerank}
+               └→ generate (manual) → ChatGoogleGenerativeAI (auto-instrumented)
     """
-    # 1. Resolve / create session
-    session_id = await asyncio.to_thread(
-        store.get_or_create_session, body.session_id, current_user.id
-    )
+    # ------------------------------------------------------------------ #
+    # 0. Start chat_turn span (manual — must outlive the route handler)   #
+    # ------------------------------------------------------------------ #
+    tracer = get_tracer()
+    chat_start = time.perf_counter()
 
-    # 2. Load history (sliding window N=5)
-    history_turns = await asyncio.to_thread(
-        store.load_history, session_id, settings.history_window_n
+    # start_span does NOT set it as current; we attach it manually so that
+    # asyncio.to_thread calls (retrieval) inherit the context.
+    chat_turn_span = tracer.start_span(
+        "chat_turn",
+        attributes={
+            "session_id": str(body.session_id or ""),
+            "query_len": len(body.query),
+            "user_id": str(current_user.id),
+            "model": settings.gemini_flash_model,
+        },
     )
-    # Convert ChatTurn → retrieval.Turn (same shape, different dataclass)
-    history = [Turn(question=t.question, answer=t.answer) for t in history_turns]
+    _ctx_token = otel_context.attach(set_span_in_context(chat_turn_span))
 
-    # 3. Run retrieval pipeline in thread pool (sync functions)
-    @traced("chat_retrieve")
-    def _run_retrieve() -> object:
-        return retrieve(
-            query=body.query,
-            embeddings=embeddings,
-            searcher=searcher,
-            rewrite_llm=rewrite_llm,
-            rerank_llm=rerank_llm,
-            history=history,
-            candidates=settings.retrieval_candidates,
-            top_k=settings.retrieval_top_k,
+    try:
+        # 1. Resolve / create session
+        session_id = await asyncio.to_thread(
+            store.get_or_create_session, body.session_id, current_user.id
         )
 
-    retrieval_result = await asyncio.to_thread(_run_retrieve)
+        # 2. Load history (sliding window N=5)
+        history_turns = await asyncio.to_thread(
+            store.load_history, session_id, settings.history_window_n
+        )
+        # Convert ChatTurn → retrieval.Turn (same shape, different dataclass)
+        history = [Turn(question=t.question, answer=t.answer) for t in history_turns]
 
-    # 4. Prepare citations and prompt
-    citations: list[Citation] = citations_from_candidates(retrieval_result.candidates)
-    messages = build_prompt(
-        query=body.query,
-        history=history,
-        candidates=retrieval_result.candidates,
-    )
+        # 3. Run retrieval pipeline in thread pool (sync functions).
+        #    asyncio.to_thread copies the current context (including chat_turn_span
+        #    as current) so child spans are properly nested under chat_turn.
+        @traced("chat_retrieve")
+        def _run_retrieve() -> object:
+            return retrieve(
+                query=body.query,
+                embeddings=embeddings,
+                searcher=searcher,
+                rewrite_llm=rewrite_llm,
+                rerank_llm=rerank_llm,
+                history=history,
+                candidates=settings.retrieval_candidates,
+                top_k=settings.retrieval_top_k,
+            )
 
-    # 5. Best-effort turn_idx estimate for pre-streaming logging.
-    # The authoritative index is computed inside save_turn under an advisory lock.
-    turn_idx_hint = await asyncio.to_thread(store.next_turn_idx, session_id)
+        retrieval_result = await asyncio.to_thread(_run_retrieve)
+
+        # 4. Prepare citations and prompt
+        citations: list[Citation] = citations_from_candidates(retrieval_result.candidates)
+        messages = build_prompt(
+            query=body.query,
+            history=history,
+            candidates=retrieval_result.candidates,
+        )
+
+        # 5. Best-effort turn_idx estimate for pre-streaming logging.
+        turn_idx_hint = await asyncio.to_thread(store.next_turn_idx, session_id)
+
+    finally:
+        # Detach chat_turn_span from the current async task context.
+        # The generator will re-attach it as parent of the generate span.
+        otel_context.detach(_ctx_token)
 
     # 6. Set up disconnect detection
     disconnect_event = asyncio.Event()
@@ -225,55 +271,117 @@ async def chat_endpoint(  # noqa: PLR0913
         for c in citations
     ]
 
+    # Capture values for the generator closure
+    _session_id = session_id
+    _turn_idx_hint = turn_idx_hint
+    _model = settings.gemini_flash_model
+
     async def event_generator():
-        # Stream tokens
-        async for event in stream_chat(
-            messages=messages,
-            model=settings.gemini_flash_model,
-            api_key=settings.google_api_key,
-            timeout=settings.generate_timeout_s,
-            disconnect_event=disconnect_event,
-            session=gen_session,
-        ):
-            yield {"data": json.dumps(event)}
+        # ---------------------------------------------------------- #
+        # Start generate span as child of chat_turn_span             #
+        # ---------------------------------------------------------- #
+        generate_span = tracer.start_span(
+            "generate",
+            context=set_span_in_context(chat_turn_span),
+            attributes={"model": _model},
+        )
+        stream_start = time.perf_counter()
+        ttft_ms: float | None = None
 
-        if gen_session.cancelled:
-            # Client disconnected or error — do not persist incomplete turn
-            logger.debug(
-                "Stream cancelled for session %s (hint turn %d) — skipping persistence",
-                session_id,
-                turn_idx_hint,
+        try:
+            # Stream tokens
+            async for event in stream_chat(
+                messages=messages,
+                model=_model,
+                api_key=settings.google_api_key,
+                timeout=settings.generate_timeout_s,
+                disconnect_event=disconnect_event,
+                session=gen_session,
+            ):
+                # Record TTFT on the first token event
+                if ttft_ms is None and isinstance(event, dict) and event.get("type") == "token":
+                    ttft_ms = (time.perf_counter() - stream_start) * 1000.0
+
+                yield {"data": json.dumps(event)}
+
+            if gen_session.cancelled:
+                logger.debug(
+                    "Stream cancelled for session %s (hint turn %d) — skipping persistence",
+                    _session_id,
+                    _turn_idx_hint,
+                )
+                generate_span.set_attribute("cancelled", True)
+                return
+
+            # Emit citations as final event
+            yield {"data": json.dumps({"type": "citations", "items": citations_payload})}
+
+            # Persist the completed turn (sync → thread pool).
+            turn_idx = await asyncio.to_thread(
+                store.save_turn,
+                _session_id,
+                body.query,
+                gen_session.full_text,
+                citations_payload,
             )
-            return
 
-        # Emit citations as final event
-        yield {"data": json.dumps({"type": "citations", "items": citations_payload})}
+            # ---------------------------------------------------- #
+            # Record generate span attributes (tokens + cost)       #
+            # ---------------------------------------------------- #
+            usage = gen_session.usage
+            cost = compute_cost(usage, _model)
 
-        # Persist the completed turn (sync → thread pool).
-        # save_turn acquires an advisory lock and computes the authoritative turn_idx.
-        turn_idx = await asyncio.to_thread(
-            store.save_turn,
-            session_id,
-            body.query,
-            gen_session.full_text,
-            citations_payload,
-        )
+            generate_span.set_attribute("prompt_tokens", usage.prompt_token_count)
+            generate_span.set_attribute("cached_tokens", usage.cached_content_token_count)
+            generate_span.set_attribute("output_tokens", usage.candidates_token_count)
+            generate_span.set_attribute("total_tokens", usage.total_token_count)
+            generate_span.set_attribute("ttft_ms", round(ttft_ms or 0.0, 1))
+            generate_span.set_attribute("caching_available", cost.caching_available)
+            generate_span.set_attribute("cache_hit_rate", round(cost.cache_hit_rate, 4))
+            generate_span.set_attribute("cost_usd", round(cost.total_usd, 8))
+            generate_span.set_attribute("input_usd", round(cost.input_usd, 8))
+            generate_span.set_attribute("cached_usd", round(cost.cached_usd, 8))
+            generate_span.set_attribute("output_usd", round(cost.output_usd, 8))
+            generate_span.set_attribute("savings_usd", round(cost.savings_usd, 8))
 
-        # Record generation attributes in the log.
-        # TODO(block-F): emit a proper OTel span here. event_generator() runs
-        # outside the @traced context of the route handler (the handler returns
-        # the EventSourceResponse before the generator is exhausted), so
-        # set_span_attributes() would target a no-op span. Fix: start_span()
-        # manually, pass it into stream_chat, end() it when the generator finishes.
-        usage = gen_session.usage
-        logger.debug(
-            "Turn %d saved | session=%s prompt_tokens=%d cached_tokens=%s output_tokens=%d",
-            turn_idx,
-            session_id,
-            usage.prompt_token_count,
-            usage.cached_content_token_count,
-            usage.candidates_token_count,
-        )
+            # ---------------------------------------------------- #
+            # Record chat_turn span attributes (aggregate)          #
+            # ---------------------------------------------------- #
+            total_latency_ms = (time.perf_counter() - chat_start) * 1000.0
+            chat_turn_span.set_attribute("turn_idx", turn_idx)
+            chat_turn_span.set_attribute("total_latency_ms", round(total_latency_ms, 1))
+            chat_turn_span.set_attribute("total_cost_usd", round(cost.total_usd, 8))
+            chat_turn_span.set_attribute("prompt_tokens", usage.prompt_token_count)
+            chat_turn_span.set_attribute("cached_tokens", usage.cached_content_token_count)
+            chat_turn_span.set_attribute("output_tokens", usage.candidates_token_count)
+
+            logger.debug(
+                "Turn %d saved | session=%s prompt_tokens=%d cached_tokens=%s "
+                "output_tokens=%d ttft_ms=%.1f cost_usd=%.6f caching=%s",
+                turn_idx,
+                _session_id,
+                usage.prompt_token_count,
+                usage.cached_content_token_count,
+                usage.candidates_token_count,
+                ttft_ms or 0.0,
+                cost.total_usd,
+                cost.caching_available,
+            )
+
+        except Exception as exc:
+            generate_span.record_exception(exc)
+            generate_span.set_status(
+                otel_trace.Status(otel_trace.StatusCode.ERROR, str(exc))
+            )
+            chat_turn_span.record_exception(exc)
+            chat_turn_span.set_status(
+                otel_trace.Status(otel_trace.StatusCode.ERROR, str(exc))
+            )
+            raise
+
+        finally:
+            generate_span.end()
+            chat_turn_span.end()
 
     return EventSourceResponse(event_generator())
 

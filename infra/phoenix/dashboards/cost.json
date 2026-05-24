@@ -1,0 +1,110 @@
+{
+  "_meta": {
+    "dashboard_id": "cost",
+    "name": "Consumo y coste (Cost)",
+    "description": "Tokens consumidos, impacto del caching implícito y coste estimado por turno y por sesión. Alimentado por los atributos del span 'generate' y 'chat_turn'.",
+    "project": "chatbot-rag-fastapi-docs",
+    "created": "2026-05-24",
+    "version": 1,
+    "pricing_anchor": "2026-05-20",
+    "pricing_model": "Gemini 3.5 Flash: input $0.30/M, cached $0.075/M, output $1.25/M"
+  },
+  "panels": [
+    {
+      "id": "c1",
+      "title": "Coste total por turno (USD) — p50 / p95",
+      "type": "timeseries",
+      "description": "Coste estimado en USD del span 'generate' (input + cached + output). Informativo — el free tier no cobra.",
+      "span_name": "generate",
+      "attribute": "cost_usd",
+      "aggregations": ["p50", "p95", "sum"],
+      "unit": "USD"
+    },
+    {
+      "id": "c2",
+      "title": "Tokens por turno: prompt / cached / output",
+      "type": "timeseries",
+      "description": "Media de tokens por categoría por turno. Si cached_tokens es consistentemente 0, el caching implícito no está activo (ver Issue #12).",
+      "span_name": "generate",
+      "attributes": ["prompt_tokens", "cached_tokens", "output_tokens"],
+      "aggregations": ["mean"],
+      "unit": "tokens"
+    },
+    {
+      "id": "c3",
+      "title": "Cache hit rate — fracción de input desde caché",
+      "type": "timeseries",
+      "description": "Porcentaje de tokens de input servidos desde caché implícita. 0 = sin caching, 0.5 = 50% del prompt cacheado.",
+      "span_name": "generate",
+      "attribute": "cache_hit_rate",
+      "aggregations": ["mean", "p10", "p90"],
+      "unit": "%",
+      "reference_lines": [
+        {"label": "system_prompt/total (típico)", "value": 0.48, "color": "blue"}
+      ]
+    },
+    {
+      "id": "c4",
+      "title": "Ahorro acumulado por caching (USD)",
+      "type": "stat",
+      "description": "USD ahorrados por el caching implícito vs. cobrar todos los tokens a precio de input. Acumulado en la ventana seleccionada.",
+      "span_name": "generate",
+      "attribute": "savings_usd",
+      "aggregations": ["sum"],
+      "unit": "USD"
+    },
+    {
+      "id": "c5",
+      "title": "Desglose de coste: input vs cached vs output",
+      "type": "pie",
+      "description": "Distribución del gasto entre tokens de input no cacheados, tokens cacheados y tokens de output.",
+      "span_name": "generate",
+      "attributes": ["input_usd", "cached_usd", "output_usd"],
+      "aggregations": ["sum"],
+      "unit": "USD"
+    },
+    {
+      "id": "c6",
+      "title": "Coste acumulado últimas 24h",
+      "type": "stat",
+      "description": "Suma del coste estimado de todos los turnos en las últimas 24h.",
+      "span_name": "generate",
+      "attribute": "cost_usd",
+      "aggregations": ["sum"],
+      "time_range": "24h",
+      "unit": "USD"
+    },
+    {
+      "id": "c7",
+      "title": "Tokens totales por sesión (top 10)",
+      "type": "table",
+      "description": "Las 10 sesiones de más consumo por número de tokens total.",
+      "span_name": "chat_turn",
+      "group_by": "session_id",
+      "attributes": ["prompt_tokens", "output_tokens", "total_cost_usd"],
+      "aggregations": ["sum"],
+      "sort": "sum(prompt_tokens) DESC",
+      "limit": 10
+    },
+    {
+      "id": "c8",
+      "title": "Disponibilidad del caching por turno",
+      "type": "timeseries",
+      "description": "Porcentaje de turnos en los que la API reportó al menos un token cacheado. Depende del model ID y del tier (Issue #12).",
+      "span_name": "generate",
+      "attribute": "caching_available",
+      "aggregations": ["rate_true"],
+      "unit": "%"
+    }
+  ],
+  "layout": {
+    "columns": 2,
+    "order": ["c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8"]
+  },
+  "data_sources": {
+    "primary_span": "generate (manual span, chat/router.py)",
+    "secondary_span": "chat_turn (manual span, aggregate)",
+    "cost_module": "backend/app/observability/cost.py",
+    "cost_model_doc": "docs/cost-model.md"
+  }
+}
