@@ -40,12 +40,7 @@ jobs:
         options: >-
           --health-cmd "pg_isready -U postgres -d chatbot_rag"
           --health-interval 5s --health-timeout 5s --health-retries 10
-      azurite:
-        image: mcr.microsoft.com/azure-storage/azurite:latest
-        ports:
-          - 10000:10000
-          - 10001:10001
-          - 10002:10002
+      # Azurite started via `docker run` on cache miss (see eval.yml note).
 
     steps:
       - uses: actions/checkout@v4
@@ -85,10 +80,13 @@ jobs:
               psql -h localhost -U postgres -d chatbot_rag -v ON_ERROR_STOP=1 -f /w/chunks_dump.sql
           else
             echo "Index cache MISS — uploading corpus and embedding chunks."
-            # Run from the repo root: upload_corpus resolves the corpus dir
-            # relative to CWD, so it must see ./corpus (not ./backend/corpus).
+            docker run -d --network host --name azurite \
+              mcr.microsoft.com/azure-storage/azurite:latest \
+              azurite --blobHost 0.0.0.0 --skipApiVersionCheck
+            until (echo > /dev/tcp/127.0.0.1/10000) 2>/dev/null; do sleep 1; done
             uv run --project backend python scripts/upload_corpus.py
             uv run --project backend python scripts/index_corpus.py
+            docker stop azurite >/dev/null 2>&1 || true
             docker run --rm --network host -e PGPASSWORD=postgres \
               pgvector/pgvector:pg17 \
               pg_dump -h localhost -U postgres -d chatbot_rag --data-only --table=chunks > chunks_dump.sql
