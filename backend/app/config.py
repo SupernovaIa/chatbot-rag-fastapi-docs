@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     # (p95 ~123s with SDK retries); 8 candidates lands at p50 10.0s / p95 10.9s /
     # max 12.5s with 0/7 fallbacks. So: 8 candidates, 15s budget, no SDK retries
     # (retries turned a 504 into a ~2min stall instead of a fast fallback).
-    retrieval_candidates: int = 8  # candidates fed to the LLM reranker (was 20)
+    retrieval_candidates: int = 1  # candidates fed to the LLM reranker (was 20)
     retrieval_top_k: int = 5  # final top-K returned after rerank
     rrf_k: int = 60  # Reciprocal Rank Fusion constant
     rerank_timeout_s: float = 15.0  # listwise rerank over 8 candidates (>=10s API min)
