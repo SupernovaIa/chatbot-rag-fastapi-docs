@@ -36,11 +36,19 @@ class Settings(BaseSettings):
     gemini_pro_model: str = "gemini-3-pro"
 
     # Retrieval tuning (specs 02/03).
-    retrieval_candidates: int = 20  # top-K candidates from hybrid search
+    # The Gemini API enforces a minimum request deadline of 10s; the original
+    # spec-03 values (rerank 5s, rewrite 1.5s) are now rejected with 400
+    # INVALID_ARGUMENT, so the LLM-reranker/rewriter always fell back. Measured
+    # over the gold subset: a 20- or 10-candidate listwise prompt still hit 504
+    # (p95 ~123s with SDK retries); 8 candidates lands at p50 10.0s / p95 10.9s /
+    # max 12.5s with 0/7 fallbacks. So: 8 candidates, 15s budget, no SDK retries
+    # (retries turned a 504 into a ~2min stall instead of a fast fallback).
+    retrieval_candidates: int = 8  # candidates fed to the LLM reranker (was 20)
     retrieval_top_k: int = 5  # final top-K returned after rerank
     rrf_k: int = 60  # Reciprocal Rank Fusion constant
-    rerank_timeout_s: float = 5.0
-    rewrite_timeout_s: float = 1.5
+    rerank_timeout_s: float = 15.0  # listwise rerank over 8 candidates (>=10s API min)
+    rewrite_timeout_s: float = 10.0  # multi-turn rewrite (>=10s API min)
+    rerank_max_retries: int = 0  # fail fast to hybrid order; no SDK backoff stall
 
     # Chat / generation (specs 05/06/07).
     generate_timeout_s: float = 60.0  # max wall-clock time for one generation

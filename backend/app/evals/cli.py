@@ -45,11 +45,13 @@ def _build_retriever(settings, *, top_k: int):
         api_key=settings.google_api_key,
         model=settings.gemini_flash_model,
         timeout=settings.rewrite_timeout_s,
+        max_retries=settings.rerank_max_retries,
     )
     rerank_llm = GeminiChatAdapter(
         api_key=settings.google_api_key,
         model=settings.gemini_flash_model,
         timeout=settings.rerank_timeout_s,
+        max_retries=settings.rerank_max_retries,
     )
 
     def retriever_fn(query: str, history: list[Turn]) -> RetrievalResult:

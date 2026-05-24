@@ -68,8 +68,16 @@ class GeminiChatAdapter:
         model: str,
         temperature: float = 0.0,
         timeout: float | None = None,
+        max_retries: int | None = None,
     ) -> None:
         from langchain_google_genai import ChatGoogleGenerativeAI
+
+        # max_retries=0 makes a slow/5xx call fail fast so the reranker/rewriter
+        # fall back immediately instead of stalling on the SDK's retry backoff
+        # (a 504 with default retries took ~2min over the gold subset).
+        kwargs: dict = {}
+        if max_retries is not None:
+            kwargs["max_retries"] = max_retries
 
         self._model_id = model
         self._llm = ChatGoogleGenerativeAI(
@@ -77,6 +85,7 @@ class GeminiChatAdapter:
             google_api_key=api_key,
             temperature=temperature,
             timeout=timeout,
+            **kwargs,
         )
 
     def complete(self, prompt: str) -> str:

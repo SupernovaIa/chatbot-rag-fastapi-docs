@@ -81,15 +81,18 @@ def get_rewrite_llm(settings: Settings = Depends(get_settings)) -> GeminiChatAda
         api_key=settings.google_api_key,
         model=settings.gemini_flash_model,
         timeout=settings.rewrite_timeout_s,
+        max_retries=settings.rerank_max_retries,  # fail fast → keep original query
     )
 
 
 def get_rerank_llm(settings: Settings = Depends(get_settings)) -> GeminiChatAdapter:
-    # Dedicated client with the rerank timeout (spec 03: > 5 s → hybrid order).
+    # Dedicated client with the rerank timeout; no SDK retries so a slow/5xx
+    # call degrades to hybrid order fast instead of stalling on backoff.
     return GeminiChatAdapter(
         api_key=settings.google_api_key,
         model=settings.gemini_flash_model,
         timeout=settings.rerank_timeout_s,
+        max_retries=settings.rerank_max_retries,
     )
 
 
