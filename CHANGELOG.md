@@ -6,7 +6,40 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y 
 
 ## [No publicado]
 
-Próximas entradas por bloque.
+### Gate humano — fixes y decisiones (Bloque E, sesión 10)
+- **fix(retrieval):** el LLM-reranker (y el rewriter) caían **siempre** al fallback por drift de la API de Gemini (deadline mínimo 10s; spec 03 usaba 5s/1.5s). Reranker recortado a 8 candidatos, `rerank_timeout_s` 15s, `rewrite_timeout_s` 10s, `max_retries=0` (un 504 degradaba a ~2min por reintentos). Medido: p50 10.0s / p95 10.9s, 0/7 fallbacks.
+- **fix(chat):** prompt de generación v1.2 fuerza respuesta en español (respondía en inglés en parte de los turnos). faithfulness 0.84→0.95 tras el fix.
+- **fix(evals):** detector de abstención reconoce marcadores en inglés (sigue siendo frágil; flag estructurado pendiente para v1.1); `gemini_pro_model` corregido a `gemini-3-pro-preview` (el id sin sufijo daba 404); juez timeout 120→300s.
+- **refactor(evals):** el gate bloquea solo sobre las 4 métricas del juez; recall@5/MRR pasan a advisory (el match determinista por `(source, section)` es demasiado estricto para multi_source).
+- **feat(evals):** floors del juez (faithfulness 0.80, answer_relevancy 0.70, context_precision 0.80, context_recall 0.85) + regresión **absoluta** (>0.07 vs baseline). `baseline_metrics.json` pinneado sobre `ci_subset` (faith 0.945 / ar 0.846 / cp 0.987 / cr 0.958).
+- **ci(evals) — gate del PR DETERMINISTA, juez LLM en la nocturna:** el juez Gemini 3 Pro (~50 s/llamada) + latencia/varianza/cuota del free-tier lo hacen inviable como bloqueante por-PR (el `ci_subset` se iba a ~13-14 min; con cuota agotada los runs del juez expiraban, 1/20 trabajos en 11 min). Por eso:
+  - **`eval.yml` (gate del PR, bloqueante):** solo deterministas — `recall@5`/`MRR` sobre los answerable label-matchables de `CI_GATE_IDS` (6 ej.), excluyendo multi_source (g-24) y no_se (g-31). Sin generación ni juez → corre en segundos (verificado: sano 70 s PASS, retrieval roto 7 s FAIL). Floors recall@5/MRR ≥ 0.85. Caché de índice con `actions/cache`; Azurite vía `docker run --skipApiVersionCheck`; `timeout-minutes: 8`.
+  - **`eval-nightly.yml` (monitor de tendencia, NO bloquea PRs):** RAGAS + Gemini Pro sobre los 40, floors del juez + regresión absoluta 0.07 vs baseline, refresca `baseline_metrics.json`. Un run rojo es alerta de tendencia.
+  - `report.py`: `evaluate_gate` (determinista) + `evaluate_judge` (monitor). `runner.run_evals` admite `use_generator=False` (retrieval-only) y excluye multi_source del recall determinista. CLI: `--retrieval-only`.
+  - Branch protection en `main` con el check `Eval gate (ci_subset)` + secret `GOOGLE_API_KEY`.
+
+### Añadido (Bloque E — Evaluación + CI con gate del PR)
+- `backend/app/evals/` — módulo de evaluación (spec 10 / ADR-007):
+  - `loader.py` — carga `gold.jsonl` (40 ej.) en `GoldExample` (normaliza claves `_es` → modelo inglés); `CI_SUBSET_IDS` (15 ej. representativos, cubre los 5 tipos) y `select_subset` (falla si falta un id).
+  - `metrics.py` — métricas deterministas sin LLM: `recall_at_k`, `reciprocal_rank` (match por `(source, section)`), `is_abstention` (detección de rechazo para `no_se`).
+  - `runner.py` — `run_evals`: retrieve → generate por ejemplo, agrega recall@5/MRR (answerable), abstention_rate (`no_se`) y las 4 métricas RAGAS (juez, answerable). Captura errores por-ejemplo sin abortar.
+  - `judge.py` — `RagasGeminiJudge`: RAGAS con Gemini Pro como juez (faithfulness, answer_relevancy, context_precision, context_recall); `RunConfig` con `max_workers` para el free tier; import de `ragas` diferido; NaNs excluidos de la media.
+  - `generator.py` — `GeminiAnswerGenerator`: respuesta completa (no streaming) con Gemini Flash, reusando `build_prompt`.
+  - `ports.py` — `AnswerGeneratorPort`, `JudgePort` (ADR-011, mockeables en tests).
+  - `report.py` — `evaluate_gate` (floor absoluto + regresión relativa opcional vs baseline de `main`), `render_markdown` (tabla del comentario del PR), `report_to_baseline`.
+  - `thresholds.yaml` — floors orientativos (provisionales hasta el gate humano) + config de regresión.
+  - `telemetry.py` — `record_eval_run`: span Phoenix `evals.run` con métricas, subset, commit/corpus SHA (dashboard de Calidad).
+  - `cli.py` — `python -m app.evals.cli` (`--subset ci_subset|full`, `--baseline`, `--update-baseline`, `--markdown`, `--json`, `--no-judge`); exit 0/1/2.
+- `backend/tests/evals/` — 71 tests (loader, métricas, runner con fakes, gate/report, pipeline parametrizado sobre el gold con marker `ci_subset`).
+- `.github/workflows/eval.yml` — gate del PR: Postgres + Azurite como services, indexa el corpus, corre el subset `ci_subset`, comenta el PR con la tabla y bloquea el merge si falla. Guard que se salta limpio si falta `GOOGLE_API_KEY`.
+- `.github/workflows/eval-nightly.yml` — suite completa (40 ej.) en `schedule` + `workflow_dispatch`; refresca `baseline_metrics.json` en `main`.
+
+### Cambiado (Bloque E)
+- `backend/app/config.py` — `gemini_pro_model` (juez), `evals_judge_max_workers`, `evals_judge_timeout_s`, `evals_gen_timeout_s`.
+- `backend/pyproject.toml` — deps `ragas>=0.2,<0.3` y `pyyaml`; markers `ci_subset` y `evals_live`.
+- `.claude/commands/eval.md` — el slash `/eval` ahora invoca el runner (`app.evals.cli`).
+
+> **Gate humano pendiente** antes de cablear CI a producción: medir baseline sobre `main`, acordar la estrategia del gate y validar el juez (ver SESSION.md). Los thresholds de `thresholds.yaml` son provisionales hasta entonces.
 
 ---
 

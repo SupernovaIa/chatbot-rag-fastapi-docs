@@ -25,3 +25,11 @@ Thumbs.db
 
 # Andamiaje de revisión del dataset gold (no es deliverable)
 corpus/**/evals/REVIEW.md
+
+# Salidas transitorias del runner de evals (artefactos de CI, no deliverables).
+# baseline_metrics.json SÍ se versiona (lo refresca el workflow nocturno).
+/eval_report.md
+/eval_metrics.json
+/eval_full_metrics.json
+# Dump del índice pgvector cacheado en CI (actions/cache), no es deliverable.
+/chunks_dump.sql

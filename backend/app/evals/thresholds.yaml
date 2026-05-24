@@ -1,0 +1,36 @@
+# Eval thresholds (spec 10 / ADR-007).
+#
+# PR gate vs nightly monitor:
+#   - The PR gate (eval.yml) is DETERMINISTIC and blocking: it floors recall@5
+#     and MRR over the label-matchable answerable examples (excludes multi_source
+#     and no_se). No LLM judge — runs in seconds, no free-tier latency/variance/
+#     quota risk, so it is safe to block a merge on.
+#   - The LLM judge (RAGAS + Gemini Pro) is too slow/variable/quota-limited on the
+#     free tier to gate per-PR, so it runs nightly (eval-nightly.yml) over the full
+#     suite as a TREND MONITOR. Its floors + regression here are alerting
+#     thresholds for the nightly run, never a per-PR blocker.
+
+# --- PR gate (blocking, deterministic) ---
+# Baseline measured over the 4 label-matchable gate examples: recall@5 = 1.000,
+# MRR = 1.000 (rerank alive). Floors kept tight: with 4 examples, one example
+# losing its gold chunk from the top-5 drops recall@5 to 0.75, which fails.
+gate:
+  recall_at_5: 0.85
+  mrr: 0.85
+
+# --- Nightly judge monitor (trend, non-blocking for PRs) ---
+judge:
+  floors:
+    faithfulness: 0.80
+    answer_relevancy: 0.70
+    context_precision: 0.80
+    context_recall: 0.85
+  regression:
+    enabled: true
+    # Alert if a judge metric drops more than 0.07 (absolute) vs the main
+    # baseline (baseline_metrics.json), even if still above the floor.
+    max_absolute_drop: 0.07
+
+# Reported for visibility, never blocking.
+advisory:
+  abstention_rate: 0.80

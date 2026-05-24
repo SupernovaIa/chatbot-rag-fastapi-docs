@@ -1,0 +1,150 @@
+name: Evals gate
+
+# PR gate (spec 10 / ADR-007): DETERMINISTIC retrieval gate. Indexes the pinned
+# corpus and runs recall@5 / MRR over the label-matchable answerable examples of
+# the gate subset (no LLM judge, no generation) — it finishes in seconds and has
+# no free-tier latency/variance/quota risk, so it is safe to block a merge on.
+# The RAGAS + Gemini Pro judge runs nightly (eval-nightly.yml) as a trend monitor.
+#
+# The pgvector index is cached with actions/cache (key = corpus snapshot hash +
+# embedding model), so a PR that doesn't touch the corpus skips re-embedding.
+#
+# Requires the GOOGLE_API_KEY secret (embeddings + the Flash reranker). Inert
+# until branch protection is enabled.
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: evals-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  EMBEDDING_MODEL: gemini-embedding-001  # part of the index cache key
+
+jobs:
+  evals:
+    name: Eval gate (ci_subset)
+    runs-on: ubuntu-latest
+    timeout-minutes: 8  # deterministic gate; ~1 min of retrieval + setup overhead
+    env:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/chatbot_rag
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      AZURE_STORAGE_CONNECTION_STRING: "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://127.0.0.1:10000/devstoreaccount1;"
+      DISABLE_TRACING: "1"
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: chatbot_rag
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d chatbot_rag"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      # Azurite is NOT a service container: GitHub services can't override the
+      # image command, and Azurite needs --skipApiVersionCheck for the current
+      # azure-storage-blob SDK. It is started via `docker run` on cache miss.
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Guard — skip cleanly if GOOGLE_API_KEY is not configured
+        id: guard
+        run: |
+          if [ -z "${GOOGLE_API_KEY}" ]; then
+            echo "GOOGLE_API_KEY secret not set — eval gate skipped." >> "$GITHUB_STEP_SUMMARY"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install uv
+        if: steps.guard.outputs.skip == 'false'
+        uses: astral-sh/setup-uv@v5
+
+      - name: Sync dependencies
+        if: steps.guard.outputs.skip == 'false'
+        working-directory: backend
+        run: uv sync
+
+      - name: Apply migrations (schema)
+        if: steps.guard.outputs.skip == 'false'
+        working-directory: backend
+        run: uv run alembic upgrade head
+
+      # The cache stores a data-only dump of the `chunks` table (embeddings
+      # included). Key = corpus snapshot hash + embedding model: any corpus edit
+      # or model change busts it and forces a re-index.
+      - name: Restore pgvector index cache
+        if: steps.guard.outputs.skip == 'false'
+        id: idxcache
+        uses: actions/cache@v4
+        with:
+          path: chunks_dump.sql
+          key: pgvec-${{ hashFiles('corpus/sample/fastapi-docs/**') }}-${{ env.EMBEDDING_MODEL }}
+
+      - name: Build index (cache miss) or restore it (cache hit)
+        if: steps.guard.outputs.skip == 'false'
+        run: |
+          set -euo pipefail
+          if [ -f chunks_dump.sql ]; then
+            echo "Index cache HIT — restoring chunks (no embedding calls)."
+            docker run --rm --network host -e PGPASSWORD=postgres -v "$PWD:/w" \
+              pgvector/pgvector:pg17 \
+              psql -h localhost -U postgres -d chatbot_rag -v ON_ERROR_STOP=1 -f /w/chunks_dump.sql
+          else
+            echo "Index cache MISS — uploading corpus and embedding chunks."
+            # Azurite with --skipApiVersionCheck (the SDK sends an API version
+            # newer than Azurite's default allow-list); host network so the
+            # well-known 127.0.0.1:10000 connection string works.
+            docker run -d --network host --name azurite \
+              mcr.microsoft.com/azure-storage/azurite:latest \
+              azurite --blobHost 0.0.0.0 --skipApiVersionCheck
+            until (echo > /dev/tcp/127.0.0.1/10000) 2>/dev/null; do sleep 1; done
+            # Run from the repo root: upload_corpus resolves the corpus dir
+            # relative to CWD, so it must see ./corpus (not ./backend/corpus).
+            uv run --project backend python scripts/upload_corpus.py
+            uv run --project backend python scripts/index_corpus.py
+            docker stop azurite >/dev/null 2>&1 || true
+            docker run --rm --network host -e PGPASSWORD=postgres \
+              pgvector/pgvector:pg17 \
+              pg_dump -h localhost -U postgres -d chatbot_rag --data-only --table=chunks > chunks_dump.sql
+          fi
+
+      - name: Run deterministic eval gate (ci_gate)
+        id: eval
+        if: steps.guard.outputs.skip == 'false'
+        working-directory: backend
+        run: |
+          uv run python -m app.evals.cli \
+            --subset ci_gate \
+            --retrieval-only \
+            --markdown ../eval_report.md \
+            --json ../eval_metrics.json
+
+      - name: Comment metrics on the PR
+        if: always() && steps.guard.outputs.skip == 'false' && hashFiles('eval_report.md') != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('eval_report.md', 'utf8');
+            const marker = '<!-- evals-gate -->';
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const comments = await github.rest.issues.listComments({ owner, repo, issue_number });
+            const existing = comments.data.find(c => c.body.includes(marker));
+            const payload = `${marker}\n${body}`;
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body: payload });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body: payload });
+            }
