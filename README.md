@@ -67,7 +67,7 @@ docker compose up -d
 
 # 4. Indexa el corpus (migraciones → subir a Azurite → embeddings → pgvector)
 docker compose exec backend alembic upgrade head
-docker compose exec backend python scripts/upload_corpus.py
+docker compose exec backend python scripts/upload_corpus.py --corpus-dir /corpus/sample/fastapi-docs
 docker compose exec backend python scripts/index_corpus.py
 
 # 5. Abre el frontend
@@ -93,8 +93,8 @@ Para servir el frontend de producción (nginx + proxy a `/api`):
 pipeline y reporta métricas. Hay dos modos:
 
 ```bash
-# Gate determinista (rápido, sin LLM): recall@5 / MRR sobre el subset de CI
-docker compose exec backend python -m app.evals.cli --subset ci_subset --no-judge
+# Gate determinista (rápido, sin juez ni generación): recall@5 / MRR
+docker compose exec backend python -m app.evals.cli --subset ci_subset --retrieval-only
 
 # Suite completa con juez RAGAS (Gemini Pro): faithfulness, relevancy, precision, recall
 docker compose exec backend python -m app.evals.cli --subset full
@@ -109,8 +109,10 @@ indirecta plantando chunks envenenados en pgvector) contra el sistema real y
 reporta el block rate:
 
 ```bash
-docker compose exec backend python scripts/red_team.py
+docker compose exec backend python scripts/red_team.py \
+  --database-url postgresql+psycopg://postgres:postgres@postgres:5432/chatbot_rag
 # Gate: >= 18/20 bloqueados, >= 3 de inyección indirecta neutralizada, 0 fugas.
+# (--database-url solo se usa para plantar/limpiar los chunks de inyección indirecta.)
 ```
 
 Los slash commands `/eval` y `/redteam` envuelven estos scripts y cruzan los
