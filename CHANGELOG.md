@@ -6,6 +6,30 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y 
 
 ## [No publicado]
 
+### Añadido (Bloque F — Observabilidad consolidada)
+
+- `backend/app/observability/cost.py` — `QueryCost` dataclass + `compute_cost(usage, model)` con pricing Gemini anclado 2026-05-20. Flash: $0.30 input / $0.075 cached / $1.25 output por millón de tokens. Pro: $1.25 / $0.3125 / $5.00. Modelos desconocidos degradan a Flash. Expone `savings_usd`, `cache_hit_rate`, `caching_available`.
+- `backend/app/chat/router.py` — span `chat_turn` manual (inicia antes del retrieval, propaga contexto OTel via `otel_context.attach/detach` para que `asyncio.to_thread` copie el contexto a los sub-spans) + span `generate` manual dentro de `event_generator()` como hijo de `chat_turn` via `set_span_in_context`. Atributos del span `generate`: `prompt_tokens`, `cached_tokens`, `output_tokens`, `total_tokens`, `ttft_ms`, `caching_available`, `cache_hit_rate`, `cost_usd`, `input_usd`, `cached_usd`, `output_usd`, `savings_usd`. Atributos del span `chat_turn`: `total_latency_ms`, `turn_idx`, `total_cost_usd`, tokens. Cierra el TODO de bloque CH sobre el span del generador.
+- `docs/cost-model.md` — tabla de precios Gemini con versión y fecha, desglose por turno (rewriter + reranker + generador), impacto del caching implícito, proyección mensual (ligero/moderado/demo).
+- `infra/phoenix/dashboards/health.json` — 8 paneles: latencia total p50/p95/p99, TTFT, latencia rerank/rewrite, tasa de fallback del reranker, throughput, tasa de errores, candidatos dense/sparse. Alertas configuradas.
+- `infra/phoenix/dashboards/quality.json` — 8 paneles: 4 métricas RAGAS con baseline y floor, recall@5/MRR del gate, abstention rate, metadatos del run (subset/SHA), regresión vs baseline.
+- `infra/phoenix/dashboards/cost.json` — 8 paneles: coste por turno, tokens por categoría, cache hit rate, ahorro acumulado, desglose pie, coste 24h, top sesiones por consumo, disponibilidad del caching.
+- `scripts/measure_caching_impact.py` — autentica contra el backend, envía N turnos SSE en la misma sesión, recupera atributos del span `generate` desde Phoenix REST API, calcula cache hit rate / ahorro / TTFT y escribe `docs/caching-impact.md`. Flags: `--turns`, `--dry-run`, `--no-write`, `--output`.
+- `docs/caching-impact.md` — metodología, limitación conocida (Issue #12: LangChain `astream()` no expone `usage_metadata` en streaming, por lo que `cached_content_token_count` puede ser 0 aunque el caching esté activo), estimación teórica (5 turnos), instrucciones de actualización con stack real.
+- `.claude/commands/dashboard.md` — actualizado: verifica Phoenix en `:6006`, consulta `GET /v1/spans`, computa métricas de salud/coste/calidad, renderiza tabla con emojis de alerta (✅/⚠️/❌), destaca fases lentas, apunta a los 3 ficheros de definición de dashboards.
+- `backend/tests/observability/test_cost.py` — 23 tests: aritmética (zero tokens, sin caché, con caché, clamping cached > prompt), Pro vs Flash, fallback de modelo desconocido, `compute_cost()`, funciones utilitarias, turno realista.
+- `specs/12-observability-block-f.md` — spec del bloque.
+
+### Cambiado (Bloque F)
+- `backend/app/chat/router.py` — añadidos `import time`, `otel_context`, `set_span_in_context`, `otel_trace`, `compute_cost`. Eliminado import no usado de `set_span_attributes`. El `TODO(block-F)` sobre el span del generador queda resuelto.
+
+### Notas (Bloque F)
+- **249 tests, todos verdes. Ruff limpio.**
+- Los dashboards JSON en `infra/phoenix/dashboards/` son **especificaciones de paneles** — Phoenix self-hosted no tiene endpoint REST de importación de dashboards. Se usan como referencia para crear los paneles manualmente en la UI de Phoenix y como fuente de verdad para el skill `/dashboard`.
+- La medición real de `docs/caching-impact.md` (con `GOOGLE_API_KEY` y stack levantado) es el único pendiente del gate humano, junto con la verificación visual del árbol de spans en Phoenix.
+
+---
+
 ### Gate humano — fixes y decisiones (Bloque E, sesión 10)
 - **fix(retrieval):** el LLM-reranker (y el rewriter) caían **siempre** al fallback por drift de la API de Gemini (deadline mínimo 10s; spec 03 usaba 5s/1.5s). Reranker recortado a 8 candidatos, `rerank_timeout_s` 15s, `rewrite_timeout_s` 10s, `max_retries=0` (un 504 degradaba a ~2min por reintentos). Medido: p50 10.0s / p95 10.9s, 0/7 fallbacks.
 - **fix(chat):** prompt de generación v1.2 fuerza respuesta en español (respondía en inglés en parte de los turnos). faithfulness 0.84→0.95 tras el fix.

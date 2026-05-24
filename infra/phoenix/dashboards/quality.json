@@ -1,0 +1,113 @@
+{
+  "_meta": {
+    "dashboard_id": "quality",
+    "name": "Calidad de evaluaciones (Quality — Bloque E)",
+    "description": "Métricas RAGAS y deterministas de los runs de evaluación. Alimentado por los spans 'evals.run' emitidos por backend/app/evals/telemetry.py.",
+    "project": "chatbot-rag-fastapi-docs",
+    "created": "2026-05-24",
+    "version": 1
+  },
+  "panels": [
+    {
+      "id": "q1",
+      "title": "faithfulness — histórico",
+      "type": "timeseries",
+      "description": "Fidelidad de la respuesta al contexto recuperado (RAGAS, juez Gemini Pro). Baseline: 0.945. Floor CI: 0.80.",
+      "span_name": "evals.run",
+      "attribute": "faithfulness",
+      "aggregations": ["last", "min", "mean"],
+      "reference_lines": [
+        {"label": "baseline", "value": 0.945, "color": "green"},
+        {"label": "floor", "value": 0.80, "color": "red"}
+      ]
+    },
+    {
+      "id": "q2",
+      "title": "answer_relevancy — histórico",
+      "type": "timeseries",
+      "description": "Relevancia de la respuesta respecto a la pregunta (RAGAS). Baseline: 0.846. Floor: 0.70.",
+      "span_name": "evals.run",
+      "attribute": "answer_relevancy",
+      "aggregations": ["last", "min", "mean"],
+      "reference_lines": [
+        {"label": "baseline", "value": 0.846, "color": "green"},
+        {"label": "floor", "value": 0.70, "color": "red"}
+      ]
+    },
+    {
+      "id": "q3",
+      "title": "context_precision — histórico",
+      "type": "timeseries",
+      "description": "Precisión del contexto recuperado (RAGAS). Baseline: 0.987. Floor: 0.80.",
+      "span_name": "evals.run",
+      "attribute": "context_precision",
+      "aggregations": ["last", "min", "mean"],
+      "reference_lines": [
+        {"label": "baseline", "value": 0.987, "color": "green"},
+        {"label": "floor", "value": 0.80, "color": "red"}
+      ]
+    },
+    {
+      "id": "q4",
+      "title": "context_recall — histórico",
+      "type": "timeseries",
+      "description": "Exhaustividad del contexto recuperado (RAGAS). Baseline: 0.958. Floor: 0.85.",
+      "span_name": "evals.run",
+      "attribute": "context_recall",
+      "aggregations": ["last", "min", "mean"],
+      "reference_lines": [
+        {"label": "baseline", "value": 0.958, "color": "green"},
+        {"label": "floor", "value": 0.85, "color": "red"}
+      ]
+    },
+    {
+      "id": "q5",
+      "title": "recall@5 y MRR (gate del PR)",
+      "type": "timeseries",
+      "description": "Métricas deterministas del gate del PR (6 ejemplos CI_GATE_IDS, sin multi_source ni no_se). Floor: 0.85.",
+      "span_name": "evals.run",
+      "attributes": ["recall_at_5", "mrr"],
+      "aggregations": ["last", "min"],
+      "reference_lines": [
+        {"label": "floor gate", "value": 0.85, "color": "red"}
+      ]
+    },
+    {
+      "id": "q6",
+      "title": "abstention_rate",
+      "type": "stat",
+      "description": "Tasa de respuestas 'no sé' sobre los ejemplos no_se del gold. Métrica advisory.",
+      "span_name": "evals.run",
+      "attribute": "abstention_rate",
+      "aggregations": ["last", "mean"]
+    },
+    {
+      "id": "q7",
+      "title": "Metadatos del run",
+      "type": "table",
+      "description": "Información del último run: subset, SHA del corpus, SHA del commit, número de ejemplos.",
+      "span_name": "evals.run",
+      "attributes": ["subset", "corpus_sha", "commit_sha", "example_count", "error_count"],
+      "sort": "timestamp DESC",
+      "limit": 10
+    },
+    {
+      "id": "q8",
+      "title": "Regresión vs baseline",
+      "type": "stat",
+      "description": "Diferencia absoluta entre el último run y el baseline pinneado. Alerta si > 0.07 en cualquier métrica RAGAS.",
+      "computation": "last_run - baseline",
+      "baseline_file": "corpus/sample/fastapi-docs/evals/baseline_metrics.json",
+      "alert_threshold": {"absolute_regression": 0.07}
+    }
+  ],
+  "layout": {
+    "columns": 2,
+    "order": ["q1", "q2", "q3", "q4", "q5", "q6", "q7", "q8"]
+  },
+  "data_sources": {
+    "spans": "evals.run spans emitted by backend/app/evals/telemetry.py",
+    "baseline": "corpus/sample/fastapi-docs/evals/baseline_metrics.json",
+    "gold": "corpus/sample/fastapi-docs/evals/gold.jsonl (40 examples)"
+  }
+}

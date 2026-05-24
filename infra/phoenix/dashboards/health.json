@@ -1,0 +1,107 @@
+{
+  "_meta": {
+    "dashboard_id": "health",
+    "name": "Salud del pipeline (Health)",
+    "description": "Latencia por fase, tasa de errores y throughput del pipeline RAG. Permite detectar regresiones de rendimiento y fases lentas.",
+    "project": "chatbot-rag-fastapi-docs",
+    "created": "2026-05-24",
+    "version": 1
+  },
+  "panels": [
+    {
+      "id": "p1",
+      "title": "Latencia total del turno (chat_turn) — p50 / p95 / p99",
+      "type": "timeseries",
+      "description": "Tiempo de wall-clock desde la petición HTTP hasta el último token. Incluye retrieval + generate.",
+      "span_name": "chat_turn",
+      "attribute": "total_latency_ms",
+      "aggregations": ["p50", "p95", "p99"],
+      "unit": "ms",
+      "alert_threshold": {"p95": 30000}
+    },
+    {
+      "id": "p2",
+      "title": "TTFT — Time to First Token (generate)",
+      "type": "timeseries",
+      "description": "Tiempo entre el inicio de la llamada al LLM y el primer token emitido. Proxy de latencia percibida.",
+      "span_name": "generate",
+      "attribute": "ttft_ms",
+      "aggregations": ["p50", "p95"],
+      "unit": "ms",
+      "alert_threshold": {"p95": 5000}
+    },
+    {
+      "id": "p3",
+      "title": "Latencia de rerank (rerank)",
+      "type": "timeseries",
+      "description": "Tiempo de la llamada al LLM-reranker. El timeout es 15s; valores p95 > 12s indican riesgo de fallback.",
+      "span_name": "rerank",
+      "attribute": "latency_ms",
+      "aggregations": ["p50", "p95"],
+      "unit": "ms",
+      "alert_threshold": {"p95": 12000}
+    },
+    {
+      "id": "p4",
+      "title": "Latencia de rewrite (rewrite)",
+      "type": "timeseries",
+      "description": "Tiempo del query rewriter. Solo activo en turnos con historial (turns > 0).",
+      "span_name": "rewrite",
+      "attribute": "duration_ms",
+      "aggregations": ["p50", "p95"],
+      "unit": "ms",
+      "alert_threshold": {"p95": 8000}
+    },
+    {
+      "id": "p5",
+      "title": "Tasa de fallback del reranker",
+      "type": "timeseries",
+      "description": "Porcentaje de turnos en los que el reranker falló y se usó el orden híbrido. > 20 % indica problemas de latencia o cuota.",
+      "span_name": "rerank",
+      "attribute": "fallback_used",
+      "aggregations": ["rate_true"],
+      "unit": "%",
+      "alert_threshold": {"rate_true": 0.2}
+    },
+    {
+      "id": "p6",
+      "title": "Throughput — turnos por minuto",
+      "type": "timeseries",
+      "description": "Número de peticiones completadas a lo largo del tiempo (span chat_turn con estado OK).",
+      "span_name": "chat_turn",
+      "attribute": null,
+      "aggregations": ["count"],
+      "unit": "requests/min"
+    },
+    {
+      "id": "p7",
+      "title": "Tasa de errores (chat_turn)",
+      "type": "stat",
+      "description": "Porcentaje de spans chat_turn con status ERROR.",
+      "span_name": "chat_turn",
+      "filter": "status = ERROR",
+      "aggregations": ["rate"],
+      "unit": "%",
+      "alert_threshold": {"rate": 0.05}
+    },
+    {
+      "id": "p8",
+      "title": "Candidatos: dense vs sparse (hybrid_search)",
+      "type": "timeseries",
+      "description": "Media de candidatos densos y léxicos por query. Si sparse ≈ 0, el índice BM25 no aporta (BM25 cross-lingual, deuda conocida).",
+      "span_name": "hybrid_search",
+      "attributes": ["dense_results_count", "sparse_results_count"],
+      "aggregations": ["mean"],
+      "unit": "chunks"
+    }
+  ],
+  "layout": {
+    "columns": 2,
+    "order": ["p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8"]
+  },
+  "query_hints": {
+    "phoenix_spans_api": "GET /v1/spans?project_name=chatbot-rag-fastapi-docs&span_kind=CHAIN&limit=200",
+    "filter_by_span_name": "Filter spans by attribute 'openinference.span.kind' or by name prefix",
+    "time_range": "last 24h"
+  }
+}
