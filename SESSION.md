@@ -4,20 +4,20 @@
 
 ## Bloque actual
 
-**Bloque:** Z (Release v1.0.0 — cierre operativo, no feature)
+**Bloque:** EV1 (Evolutivo post-1.0 — borrado de conversaciones)
 **Estado:** in_progress
-**Fecha apertura:** 2026-05-24 (sesión 13)
-**Última actualización:** 2026-05-24 (sesión 13)
+**Fecha apertura:** 2026-05-25 (sesión 14)
+**Última actualización:** 2026-05-25 (sesión 14)
 
-> Bloque S completado ✓ (merge squash PR #19 + tag `10-block-S`). El histórico de bloques anteriores en CHANGELOG.md.
+> Bloque Z completado ✓ (release v1.0.0). El histórico de bloques anteriores en CHANGELOG.md.
 
 ## Objetivo del bloque
 
-Cierre de la v1.0.0: documentación de release (C4 L3, README, DECISIONS), limpieza (TODOs, `.env.example`, secretos), verificación end-to-end desde clone fresco y preparación del tag anotado `v1.0.0` + cuerpo del release. No es un bloque de feature: no se añade funcionalidad.
+Primer evolutivo sobre el sistema congelado (v1.0.0): permitir **borrar conversaciones**, que hoy no es posible (solo existen `POST /chat` y `GET /chat/sessions[/{id}]`). Brownfield: la spec se escribe leyendo el diseño existente, sin ADR (no hay decisión arquitectónica que tomar). Alcance: `DELETE /chat/sessions/{id}` con el mismo scoping por usuario que el GET, botón de borrado con confirmación en `SessionSelector`, y tests del endpoint.
 
 ## Próxima acción concreta
 
-Gate humano: revisar el PR de cierre, mergear en squash, crear el tag anotado `v1.0.0` y publicar el release. No tagear ni publicar por agente.
+Escribir `specs/` del evolutivo → implementar `DELETE /chat/sessions/{id}` + método de store → verificar en vivo con curl (dos usuarios: propia 200 / ajena 403 / inexistente 404) ANTES de tocar el frontend → botón en `SessionSelector` → tests. Cierre: commits divididos, abrir PR y parar (gate humano).
 
 ## Pendientes en este bloque
 
