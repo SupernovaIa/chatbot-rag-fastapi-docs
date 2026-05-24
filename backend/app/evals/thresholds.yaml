@@ -12,17 +12,20 @@
 #     `regression.max_relative_drop` of the baseline value. This guards against
 #     a slow erosion that never crosses the absolute floor.
 
+# Only the LLM-judged metrics gate the merge (spec 10 decision). recall@5 / MRR
+# moved to advisory: the deterministic (source, section) match is too strict for
+# multi_source examples (answer grounded in non-gold chunks), so they are noisy
+# as a hard gate; the judge's context_recall already reflects retrieval quality.
 floors:
   faithfulness: 0.75
   answer_relevancy: 0.80
   context_precision: 0.70
   context_recall: 0.80
+
+# Reported for visibility, never blocking. Reference values only.
+advisory:
   recall_at_5: 0.85
   mrr: 0.60
-
-# abstention_rate is reported but not gated in v1.0 (no_se behaviour is also
-# covered by the security red-team checklist). Floor kept here for visibility.
-advisory:
   abstention_rate: 0.80
 
 regression:

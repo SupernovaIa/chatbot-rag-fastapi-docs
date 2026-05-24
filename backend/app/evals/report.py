@@ -23,15 +23,20 @@ from app.evals.models import RunReport
 
 _THRESHOLDS_PATH = Path(__file__).parent / "thresholds.yaml"
 
-# Metrics subject to the gate, in display order.
+# Metrics that BLOCK the merge, in display order. Only the LLM-judged metrics
+# gate (spec 10 decision): recall@5 / MRR are reported as advisory because the
+# deterministic (source, section) match is too strict for multi_source examples
+# (the answer can be fully grounded in non-gold chunks), so they are noisy as a
+# hard gate. The judge's context_recall already covers retrieval quality.
 _GATED = (
     "faithfulness",
     "answer_relevancy",
     "context_precision",
     "context_recall",
-    "recall_at_5",
-    "mrr",
 )
+
+# Reported in the table but never blocking.
+_ADVISORY = ("recall_at_5", "mrr", "abstention_rate")
 _LABELS = {
     "faithfulness": "faithfulness",
     "answer_relevancy": "answer_relevancy",
@@ -151,18 +156,19 @@ def render_markdown(report: RunReport, verdict: GateVerdict) -> str:
             f"| {_fmt(m.baseline)} | {mark} |"
         )
 
-    # Advisory (non-gated) row.
-    abst = report.metrics.abstention_rate
-    lines.append(
-        f"| {_LABELS['abstention_rate']} (advisory) | {_fmt(abst)} | — | — | ℹ️ |"
-    )
+    # Advisory (non-gated) rows: reported for visibility, never block the merge.
+    values = report.metrics.as_dict()
+    for name in _ADVISORY:
+        lines.append(
+            f"| {_LABELS[name]} (advisory) | {_fmt(values.get(name))} | — | — | ℹ️ |"
+        )
 
     if report.errors:
         ids = ", ".join(f"`{r.id}`" for r in report.errors)
         lines += ["", f"⚠️ {len(report.errors)} ejemplo(s) con error: {ids}"]
 
     if not verdict.passed:
-        lines += ["", "**Métricas por debajo del umbral — merge bloqueado.**"]
+        lines += ["", "**Métrica(s) del juez por debajo del umbral — merge bloqueado.**"]
 
     return "\n".join(lines) + "\n"
 

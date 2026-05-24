@@ -18,9 +18,8 @@ THRESHOLDS = {
         "answer_relevancy": 0.80,
         "context_precision": 0.70,
         "context_recall": 0.80,
-        "recall_at_5": 0.85,
-        "mrr": 0.60,
     },
+    "advisory": {"recall_at_5": 0.85, "mrr": 0.60, "abstention_rate": 0.80},
     "regression": {"enabled": True, "max_relative_drop": 0.05},
 }
 
@@ -40,10 +39,11 @@ def _report(**overrides) -> RunReport:
 
 def test_thresholds_yaml_loads_with_expected_keys() -> None:
     t = load_thresholds()
-    assert set(t["floors"]) >= {
-        "faithfulness", "answer_relevancy", "context_precision",
-        "context_recall", "recall_at_5", "mrr",
+    # Only the four LLM-judged metrics gate; recall@5 / MRR are advisory.
+    assert set(t["floors"]) == {
+        "faithfulness", "answer_relevancy", "context_precision", "context_recall",
     }
+    assert {"recall_at_5", "mrr"} <= set(t["advisory"])
 
 
 def test_gate_passes_when_all_above_floor() -> None:
@@ -61,18 +61,27 @@ def test_gate_fails_below_floor() -> None:
 
 
 def test_gate_fails_on_relative_regression_even_above_floor() -> None:
-    # recall 0.86 is above the 0.85 floor but a >5% drop from baseline 0.95.
-    baseline = {"recall_at_5": 0.95}
-    verdict = evaluate_gate(_report(recall_at_5=0.86), thresholds=THRESHOLDS, baseline=baseline)
+    # faithfulness 0.80 is above the 0.75 floor but a >5% drop from baseline 0.95.
+    baseline = {"faithfulness": 0.95}
+    verdict = evaluate_gate(_report(faithfulness=0.80), thresholds=THRESHOLDS, baseline=baseline)
     assert not verdict.passed
     assert any("regressed" in m.reason for m in verdict.failures)
 
 
 def test_gate_tolerates_small_drop_within_margin() -> None:
-    baseline = {"recall_at_5": 0.90}
+    baseline = {"faithfulness": 0.90}
     # 0.88 is within 5% of 0.90 (min allowed 0.855) and above the floor.
-    verdict = evaluate_gate(_report(recall_at_5=0.88), thresholds=THRESHOLDS, baseline=baseline)
+    verdict = evaluate_gate(_report(faithfulness=0.88), thresholds=THRESHOLDS, baseline=baseline)
     assert verdict.passed
+
+
+def test_recall_and_mrr_are_advisory_not_gated() -> None:
+    # recall@5 / MRR well below their reference values must NOT block the gate.
+    verdict = evaluate_gate(_report(recall_at_5=0.10, mrr=0.10), thresholds=THRESHOLDS)
+    assert verdict.passed
+    gated = {m.name for m in verdict.metrics}
+    assert "recall_at_5" not in gated
+    assert "mrr" not in gated
 
 
 def test_uncomputed_metric_is_not_gated() -> None:
