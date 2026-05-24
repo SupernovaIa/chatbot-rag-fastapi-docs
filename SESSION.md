@@ -4,59 +4,50 @@
 
 ## Bloque actual
 
-**Bloque:** S (Seguridad)
-**Estado:** gate_pending
-**Fecha apertura:** 2026-05-24 (sesión 12)
-**Última actualización:** 2026-05-24 (cierre de sesión 12)
+**Bloque:** Z (Release v1.0.0 — cierre operativo, no feature)
+**Estado:** in_progress
+**Fecha apertura:** 2026-05-24 (sesión 13)
+**Última actualización:** 2026-05-24 (sesión 13)
 
-> Bloque F completado ✓ (merge squash PR #18 + tag `09-block-F`). El histórico de bloques anteriores en CHANGELOG.md.
+> Bloque S completado ✓ (merge squash PR #19 + tag `10-block-S`). El histórico de bloques anteriores en CHANGELOG.md.
 
 ## Objetivo del bloque
 
-Defense in depth en 5 capas frente a prompt injection, jailbreaks y fuga de información (spec `09-security-layers.md`, OWASP LLM01/LLM02). Red team con ≥18/20 prompts bloqueados, ≥3 de injection indirecta.
+Cierre de la v1.0.0: documentación de release (C4 L3, README, DECISIONS), limpieza (TODOs, `.env.example`, secretos), verificación end-to-end desde clone fresco y preparación del tag anotado `v1.0.0` + cuerpo del release. No es un bloque de feature: no se añade funcionalidad.
 
 ## Próxima acción concreta
 
-Gate humano: merge squash de la PR + tag `10-block-S`. No mergear ni taggear por agente.
+Gate humano: revisar el PR de cierre, mergear en squash, crear el tag anotado `v1.0.0` y publicar el release. No tagear ni publicar por agente.
 
 ## Pendientes en este bloque
 
-- [x] Capa 1 · Safety filters de Gemini (`BLOCK_MEDIUM_AND_ABOVE` en 4 categorías) + detección de bloqueo por `finish_reason`
-- [x] Capa 2 · Guardrail Flash (`prompts/guardrail.md` + `app/security/guardrail.py`, clasifica legitimate/suspicious/hostile, fail-open)
-- [x] Capa 3 · System prompt robusto (`prompts/system.md` v1.3 + `<context>` como datos no confiables en `prompts.py`)
-- [x] Capa 4 · Filtro de output (`app/security/output_filter.py`, regex PII con Luhn + redaction incremental con holdback para streaming + detección de leak)
-- [x] Capa 5 · Incidentes en Phoenix (`app/security/incidents.py`, span `security_incident` con `blocking_layer`) + rate limiting por `user_id` 30/min (`app/security/rate_limit.py`, vía `limits`)
-- [x] `security/red-team-checklist.md` (20 hostiles + 3 controles, ≥3 injection indirecta) + `scripts/red_team.py` conectado a `/redteam`
-- [x] Red team contra sistema real: **20/20 bloqueados** (4/4 injection indirecta, 3/3 controles sin falso positivo)
-- [x] Tests `backend/tests/security/` + integración de bloqueo/redaction en `tests/chat/test_router.py`
+- [x] Primer commit de rama: `SESSION.md` — S marcado como completado, Z (release) como in_progress.
+- [x] C4 Level 3: `docs/architecture/04-components.md` (componentes del backend).
+- [x] Reescritura de `README.md` (qué es, stack, quickstart 5 pasos, evals/red team, árbol, roadmap v1.1, anexo Azure).
+- [x] `DECISIONS.md` revisado: 11 ADRs indexados + ADR-012 (gate de evals determinista/nocturna, surgido en E).
+- [x] Limpieza: 0 TODOs/FIXMEs en código; `.env.example` completo (+ ENVIRONMENT, CORS_ORIGINS); `.gitleaks.toml` con allowlist documentada → escaneo limpio.
+- [x] **fix descubierto en la verificación:** `scripts/` no estaba montado en el contenedor; los comandos documentados fallaban. Se añade `./scripts:/app/scripts:ro` en compose y se corrigen los comandos del README.
+- [x] Verificación end-to-end desde clone fresco (ver evidencia abajo).
+- [x] Mensaje del tag anotado `v1.0.0` + cuerpo del release preparados en `docs/release/v1.0.0.md` (no publicados).
 
-## Completado en esta sesión (Bloque S, sesión 12)
+## Verificación end-to-end desde clone fresco (sesión 13)
 
-- [x] Primer commit de rama: `SESSION.md` — F marcado como completado, S como in_progress; spec 09 commiteada.
-- [x] `backend/app/security/` — `models.py` (BlockingLayer, Verdict, GuardrailVerdict, OutputScanResult), `safety.py`, `guardrail.py`, `output_filter.py`, `incidents.py`, `rate_limit.py`.
-- [x] `backend/app/chat/generator.py` — `safety_settings` en `ChatGoogleGenerativeAI`; captura `finish_reason`; flag `safety_blocked`.
-- [x] `backend/app/chat/router.py` — guardrail pre-retrieval (hostile → respuesta segura, suspicious → flag), redaction PII del stream, detección de leak post-stream, persistencia del texto redactado, `rate_limited_user` (auth declarada **primero** para preservar el 401), incidentes por capa.
-- [x] `backend/app/main.py` — rate limiting movido a dependencia (sin `BaseHTTPMiddleware`, que rompía el 401 temprano).
-- [x] `prompts/system.md` v1.3 (sección de seguridad), `prompts/guardrail.md` v1.0, `prompts.py` (delimitadores `<context>`).
-- [x] `security/red-team-checklist.md`, `scripts/red_team.py`, `.claude/commands/redteam.md` (conectado al script).
-- [x] `backend/pyproject.toml` — dep `slowapi>=0.1.9` (usa `limits`); `app/config.py` — settings de seguridad.
-- [x] Tests: `backend/tests/security/test_output_filter.py`, `test_guardrail.py`, `test_safety_and_incidents.py` + `TestSecurityLayers` en `tests/chat/test_router.py`.
+Ejecutada con `docker compose down -v` y stack reconstruido desde cero. Evidencia real:
 
-## Verificación pre-cierre (sesión 12, Bloque S)
+1. **Reset + arranque:** `down -v` borra volúmenes; `up -d --build` → 5/5 servicios `healthy`.
+2. **Indexado:** `alembic upgrade head` (3 migraciones) → `upload_corpus` (145 blobs) → `index_corpus` → **145 blobs / 1782 chunks split / 1772 en pgvector** (~51 s).
+3. **Auth + multi-turn:** register 201 → login 204 (cookie `access_token`) → `/auth/me` 200. Conversación de **5 turnos** sobre la misma sesión: cada turno responde con marcadores `[1]`–`[5]` mapeados a **5 citas reales**; el rewriter resuelve el contexto multi-turn (turno 2 "¿y su tipo?" → *Path parameters with types*; turno 5 combina path+query).
+4. **/eval:** gate determinista `ci_subset --retrieval-only` → **PASS** (recall@5 1.000, MRR 0.883; floors 0.85; exit 0).
+5. **/redteam:** `red_team.py` contra el sistema real → **20/20 bloqueados** (gate ≥18/20), 4/4 inyección indirecta neutralizada, 3/3 controles sin falso positivo.
+6. **Phoenix:** **331 spans** — `chat_turn` 42, `generate` 27, `retrieve`/`rerank`/`hybrid_search`/`rewrite` 27 c/u, `ChatGoogleGenerativeAI` 108, `security_incident` 19 (15 GUARDRAIL + 4 OUTPUT_FILTER, con `blocking_layer`).
+7. **CI bloquea regresión:** PR #20 (deliberada, `retrieval_candidates=1`) → **Eval gate FAIL** (recall@5/MRR 0.500 < 0.85, exit 1) + 2 tests unitarios rojos. PR cerrada sin mergear, rama borrada.
 
-- `cd backend && uv run ruff check . ../scripts/red_team.py` → `All checks passed!` ✓
-- `cd backend && uv run pytest -q` → `279 passed` ✓
-- `python scripts/red_team.py` contra el stack real → **block rate 20/20** (gate ≥18/20), 4/4 injection indirecta, 3/3 controles ✓ (ver `security/red-team-results.md`)
-- Spans `security_incident` en Phoenix con `blocking_layer`/`blocking_layer_name` verificados (GUARDRAIL + OUTPUT_FILTER) ✓
+> Tests: `279 passed`, ruff limpio. gitleaks: `no leaks found` con `.gitleaks.toml`.
 
-> **Notas:**
-> - El guardrail es un LLM (Flash) y tiene varianza; el free-tier devuelve a veces respuestas vacías/error transitorias. `red_team.py` reintenta una vez ante vacío/error para que el gate refleje la postura real, no la flakiness. Defensa en profundidad: aunque el guardrail dejara pasar un caso, la capa 3 (system prompt) también rechaza.
-> - Rate limiting en memoria (single-worker dev/free-tier). Para escalar a varios workers: cambiar `MemoryStorage` por `RedisStorage`.
+## Gate de revisión (Bloque Z)
 
-## Gate de revisión (Bloque S)
-
-- **Criterio:** 5 capas implementadas según spec 09; `red_team.py` bloquea ≥18/20 sin fugar PII ni system prompt; ≥3 injection indirecta neutralizada; incidentes con `blocking_layer` en Phoenix; rate limiting por `user_id`.
-- **Resultado:** **pendiente** (gate humano — merge PR + tag `10-block-S`).
+- **Criterio:** documentación de release completa y coherente; sin secretos reales (gitleaks limpio); tests verdes; verificación end-to-end desde clone fresco con evidencia real de cada paso.
+- **Resultado:** **pendiente** (gate humano — merge PR + tag anotado `v1.0.0` + release).
 
 ## Blockers
 

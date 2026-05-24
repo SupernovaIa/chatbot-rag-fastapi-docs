@@ -15,5 +15,6 @@
 | [ADR-009](docs/adr/ADR-009-frontend-separado.md) | Frontend React + Vite en contenedor separado | aceptado | 2026-05-20 |
 | [ADR-010](docs/adr/ADR-010-langchain-v1.md) | LangChain v1 + langchain-google-genai como framework | aceptado | 2026-05-20 |
 | [ADR-011](docs/adr/ADR-011-arquitectura-codigo.md) | Arquitectura de código: package-by-feature + puertos para dependencias externas | aceptado | 2026-05-21 |
+| [ADR-012](docs/adr/ADR-012-eval-gate-split.md) | Gate de evaluación determinista por PR + juez LLM en la nocturna | aceptado | 2026-05-23 |
 
 Las decisiones que surjan durante la construcción se añaden aquí como nuevos ADRs.

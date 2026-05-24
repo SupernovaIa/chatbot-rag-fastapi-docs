@@ -1,0 +1,24 @@
+# Configuración de gitleaks para chatbot-rag-fastapi-docs.
+# Extiende el set de reglas por defecto y añade una allowlist de falsos
+# positivos conocidos: ninguno es un secreto real.
+title = "chatbot-rag-fastapi-docs gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Falsos positivos documentados (no son secretos reales)"
+
+regexes = [
+  # Clave de cuenta de desarrollo de Azurite: es PÚBLICA y FIJA, la misma para
+  # todas las instalaciones del emulador. La publica Microsoft en su doc oficial
+  # (storage-use-azurite). No es un secreto: aparece en .env.example,
+  # docker-compose, los workflows de CI y docs/azurite-setup.md.
+  '''Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==''',
+]
+
+paths = [
+  # Token JWT de ejemplo del tutorial oficial de FastAPI (parte del corpus
+  # indexado, no una credencial del proyecto).
+  '''corpus/sample/fastapi-docs/tutorial/security/oauth2-jwt\.md''',
+]

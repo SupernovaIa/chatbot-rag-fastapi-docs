@@ -66,6 +66,10 @@ services:
       # The eval runner resolves it at Path(__file__).parents[3] / "corpus",
       # i.e. /corpus inside the container. Bind-mount read-only for `/eval`.
       - ./corpus:/corpus:ro
+      # Operational scripts (upload_corpus, index_corpus, red_team, ...) live at
+      # the repo root too. Bind-mount under the workdir so the documented
+      # `docker compose exec backend python scripts/<x>.py` commands work.
+      - ./scripts:/app/scripts:ro
     environment:
       DATABASE_URL: postgresql+psycopg://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/chatbot_rag
       GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
