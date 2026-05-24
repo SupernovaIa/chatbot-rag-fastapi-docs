@@ -4,20 +4,20 @@
 
 ## Bloque actual
 
-**Bloque:** F (Observabilidad consolidada)
-**Estado:** gate_pending
-**Fecha apertura:** 2026-05-24 (sesión 11)
-**Última actualización:** 2026-05-24 (cierre de sesión 11)
+**Bloque:** S (Seguridad)
+**Estado:** in_progress
+**Fecha apertura:** 2026-05-24 (sesión 12)
+**Última actualización:** 2026-05-24 (apertura de sesión 12)
 
-> Bloque E completado ✓ (merge squash PR #17 + tag `08-block-E`). El histórico de bloques anteriores en CHANGELOG.md.
+> Bloque F completado ✓ (merge squash PR #18 + tag `09-block-F`). El histórico de bloques anteriores en CHANGELOG.md.
 
 ## Objetivo del bloque
 
-Observabilidad consolidada: spans completos (`chat_turn` padre + `generate` con tokens/cached/TTFT/coste), módulo de coste por query con pricing Gemini, 3 dashboards Phoenix en `infra/phoenix/dashboards/`, script de medición de impacto del caching y conexión del slash `/dashboard`.
+Defense in depth en 5 capas frente a prompt injection, jailbreaks y fuga de información (spec `09-security-layers.md`). Safety filters de Gemini, guardrail Flash, system prompt robusto, filtro de output con PII masking, logging de incidentes + rate limiting. Red team con ≥18/20 prompts bloqueados, ≥3 de injection indirecta.
 
 ## Próxima acción concreta
 
-Gate humano: merge squash de la PR + tag `09-block-F`. No mergear ni taggear por agente.
+Implementar las 5 capas siguiendo la spec; correr `scripts/red_team.py` contra el sistema real (objetivo ≥18/20) antes de pulir.
 
 ## Pendientes en este bloque
 
