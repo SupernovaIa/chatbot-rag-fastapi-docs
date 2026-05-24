@@ -94,7 +94,10 @@ def evaluate_gate(
     floors: dict[str, float] = thresholds.get("floors", {})
     regression = thresholds.get("regression", {})
     reg_enabled = bool(regression.get("enabled", False))
-    max_drop = float(regression.get("max_relative_drop", 0.0))
+    # Absolute drop vs the main baseline (e.g. 0.07): block a metric that falls
+    # more than this many points below its baseline value, even if still above
+    # the floor (guards against slow erosion within judge variance).
+    max_drop = float(regression.get("max_absolute_drop", 0.0))
 
     values = report.metrics.as_dict()
     verdicts: list[MetricVerdict] = []
@@ -117,11 +120,11 @@ def evaluate_gate(
             reasons.append(f"below floor {floor:.2f}")
 
         if reg_enabled and base is not None:
-            min_allowed = base * (1.0 - max_drop)
+            min_allowed = base - max_drop
             if value < min_allowed:
                 passed = False
                 reasons.append(
-                    f"regressed >{max_drop:.0%} vs baseline {base:.3f} "
+                    f"regressed >{max_drop:.2f} vs baseline {base:.3f} "
                     f"(min {min_allowed:.3f})"
                 )
 

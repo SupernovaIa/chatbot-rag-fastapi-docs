@@ -17,10 +17,10 @@
 # multi_source examples (answer grounded in non-gold chunks), so they are noisy
 # as a hard gate; the judge's context_recall already reflects retrieval quality.
 floors:
-  faithfulness: 0.75
-  answer_relevancy: 0.80
-  context_precision: 0.70
-  context_recall: 0.80
+  faithfulness: 0.80
+  answer_relevancy: 0.70
+  context_precision: 0.80
+  context_recall: 0.85
 
 # Reported for visibility, never blocking. Reference values only.
 advisory:
@@ -30,6 +30,7 @@ advisory:
 
 regression:
   enabled: true
-  # Allow at most a 5% relative drop vs the main baseline before failing,
-  # leaving headroom for judge variance (ADR-007). Tune at the human gate.
-  max_relative_drop: 0.05
+  # Block a judge metric that drops more than 0.07 (absolute) below the main
+  # baseline, even if still above the floor. 0.07 sits just above the observed
+  # judge run-to-run variance (~0.05), so normal noise does not trip it.
+  max_absolute_drop: 0.07

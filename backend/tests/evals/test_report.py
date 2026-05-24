@@ -20,7 +20,7 @@ THRESHOLDS = {
         "context_recall": 0.80,
     },
     "advisory": {"recall_at_5": 0.85, "mrr": 0.60, "abstention_rate": 0.80},
-    "regression": {"enabled": True, "max_relative_drop": 0.05},
+    "regression": {"enabled": True, "max_absolute_drop": 0.07},
 }
 
 
@@ -60,18 +60,18 @@ def test_gate_fails_below_floor() -> None:
     assert "below floor" in verdict.failures[0].reason
 
 
-def test_gate_fails_on_relative_regression_even_above_floor() -> None:
-    # faithfulness 0.80 is above the 0.75 floor but a >5% drop from baseline 0.95.
+def test_gate_fails_on_absolute_regression_even_above_floor() -> None:
+    # faithfulness 0.86 is above the 0.80 floor but a 0.09 drop (>0.07) from 0.95.
     baseline = {"faithfulness": 0.95}
-    verdict = evaluate_gate(_report(faithfulness=0.80), thresholds=THRESHOLDS, baseline=baseline)
+    verdict = evaluate_gate(_report(faithfulness=0.86), thresholds=THRESHOLDS, baseline=baseline)
     assert not verdict.passed
     assert any("regressed" in m.reason for m in verdict.failures)
 
 
 def test_gate_tolerates_small_drop_within_margin() -> None:
-    baseline = {"faithfulness": 0.90}
-    # 0.88 is within 5% of 0.90 (min allowed 0.855) and above the floor.
-    verdict = evaluate_gate(_report(faithfulness=0.88), thresholds=THRESHOLDS, baseline=baseline)
+    baseline = {"faithfulness": 0.95}
+    # 0.90 is a 0.05 drop (< 0.07) and above the floor → tolerated.
+    verdict = evaluate_gate(_report(faithfulness=0.90), thresholds=THRESHOLDS, baseline=baseline)
     assert verdict.passed
 
 
