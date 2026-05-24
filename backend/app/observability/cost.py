@@ -105,11 +105,18 @@ class QueryCost:
 
     @property
     def savings_usd(self) -> float:
-        """USD saved by implicit caching vs. billing all tokens at full price."""
+        """USD saved by implicit caching vs. billing all tokens at full price.
+
+        Uses the *effective* (clamped) cached token count — the same value used
+        in ``cached_usd`` — so the calculation is internally consistent even when
+        the raw API value exceeds ``prompt_tokens``.
+        """
         if not self.caching_available:
             return 0.0
         rates = _PRICING.get(self.model, _PRICING[_DEFAULT_MODEL])
-        full_price = self.cached_tokens / 1_000_000.0 * rates["input"]
+        # Clamp: effective cached cannot exceed prompt (same guard as __post_init__)
+        effective_cached = min(self.cached_tokens, self.prompt_tokens)
+        full_price = effective_cached / 1_000_000.0 * rates["input"]
         actual_price = self.cached_usd
         return max(0.0, full_price - actual_price)
 

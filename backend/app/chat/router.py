@@ -242,9 +242,18 @@ async def chat_endpoint(  # noqa: PLR0913
         # 5. Best-effort turn_idx estimate for pre-streaming logging.
         turn_idx_hint = await asyncio.to_thread(store.next_turn_idx, session_id)
 
+    except Exception as exc:
+        # Retrieval phase failed before the generator was created.
+        # End the span here — event_generator's finally will never run.
+        chat_turn_span.record_exception(exc)
+        chat_turn_span.set_status(otel_trace.Status(otel_trace.StatusCode.ERROR, str(exc)))
+        chat_turn_span.end()
+        raise
+
     finally:
-        # Detach chat_turn_span from the current async task context.
-        # The generator will re-attach it as parent of the generate span.
+        # Detach chat_turn_span from the current async task context regardless
+        # of success or failure. The generator re-attaches it as parent context
+        # for the generate span via set_span_in_context.
         otel_context.detach(_ctx_token)
 
     # 6. Set up disconnect detection
@@ -280,10 +289,15 @@ async def chat_endpoint(  # noqa: PLR0913
         # ---------------------------------------------------------- #
         # Start generate span as child of chat_turn_span             #
         # ---------------------------------------------------------- #
+        # Include session_id so the caching measurement script can filter
+        # generate spans by session without having to inspect the parent.
         generate_span = tracer.start_span(
             "generate",
             context=set_span_in_context(chat_turn_span),
-            attributes={"model": _model},
+            attributes={
+                "model": _model,
+                "session_id": str(_session_id),
+            },
         )
         stream_start = time.perf_counter()
         ttft_ms: float | None = None
@@ -310,7 +324,14 @@ async def chat_endpoint(  # noqa: PLR0913
                     _session_id,
                     _turn_idx_hint,
                 )
+                # Record what we know: flag + partial TTFT + partial latency.
+                # Token counts and cost are not available (generation interrupted).
                 generate_span.set_attribute("cancelled", True)
+                if ttft_ms is not None:
+                    generate_span.set_attribute("ttft_ms", round(ttft_ms, 1))
+                partial_latency_ms = (time.perf_counter() - chat_start) * 1000.0
+                chat_turn_span.set_attribute("cancelled", True)
+                chat_turn_span.set_attribute("total_latency_ms", round(partial_latency_ms, 1))
                 return
 
             # Emit citations as final event

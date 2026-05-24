@@ -37,7 +37,7 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
+import os
 import sys
 import time
 from dataclasses import dataclass, field
@@ -46,14 +46,27 @@ from pathlib import Path
 from typing import Optional
 
 # ---------------------------------------------------------------------------
-# Gemini pricing (must match backend/app/observability/cost.py)
+# Gemini pricing — imported from the canonical source in the backend.
+# Falls back to hardcoded values only when the backend package is not on the
+# path (e.g. running the script outside the project virtualenv).
 # ---------------------------------------------------------------------------
 
-_FLASH_RATES = {
-    "input": 0.30,          # $/M tokens
-    "cached_input": 0.075,  # $/M tokens
-    "output": 1.25,         # $/M tokens
-}
+def _load_flash_rates() -> dict[str, float]:
+    """Return the Flash pricing dict from cost.py, or fall back to defaults."""
+    _repo_backend = os.path.join(os.path.dirname(__file__), "..", "backend")
+    sys.path.insert(0, _repo_backend)
+    try:
+        from app.observability.cost import pricing_for_model  # type: ignore[import]
+        return pricing_for_model("gemini-3.5-flash")
+    except ImportError:
+        # Running outside the project venv — use embedded copy.
+        # Keep in sync with backend/app/observability/cost.py _PRICING.
+        return {"input": 0.30, "cached_input": 0.075, "output": 1.25}
+    finally:
+        sys.path.pop(0)
+
+
+_FLASH_RATES = _load_flash_rates()
 
 # Approximate system prompt token count (measured with SDK, block CH)
 _SYSTEM_PROMPT_TOKENS = 1_200
@@ -245,32 +258,52 @@ def _fetch_span_usage(
     session_id: str,
     turn_idx: int,
 ) -> Optional[dict]:
-    """Query Phoenix spans API for the generate span of this turn."""
+    """Query Phoenix spans API for the generate span of this turn.
+
+    The ``generate`` span includes a ``session_id`` attribute (set in
+    chat/router.py block F) so we can filter client-side after fetching recent
+    spans. The Phoenix REST API filter syntax varies by version, so we keep the
+    server-side filter minimal and do exact matching in Python.
+    """
     phoenix_url = base_url.replace(":8000", ":6006")
     try:
+        # Fetch recent generate-named spans; client-side filter by session_id.
+        # Avoid Phoenix-version-specific OData syntax in the server filter.
         resp = session.get(
             f"{phoenix_url}/v1/spans",
             params={
                 "project_name": "chatbot-rag-fastapi-docs",
-                "limit": 10,
-                "filter": f'name == "generate" and attributes["session_id"] == "{session_id}"',
+                "limit": 50,  # enough to cover all turns in one run
             },
             timeout=10.0,
         )
-        if resp.status_code == 200:
-            data = resp.json()
-            spans = data.get("data", [])
-            # Find the span for this turn_idx
-            for span in spans:
-                attrs = span.get("attributes", {})
-                if attrs.get("session_id") == session_id:
-                    return {
-                        "prompt_tokens": attrs.get("prompt_tokens", 0),
-                        "cached_tokens": attrs.get("cached_tokens", 0),
-                        "output_tokens": attrs.get("output_tokens", 0),
-                        "ttft_ms": attrs.get("ttft_ms", 0.0),
-                        "caching_available": attrs.get("caching_available", False),
-                    }
+        if resp.status_code != 200:
+            return None
+
+        data = resp.json()
+        spans = data.get("data", [])
+
+        # Keep only "generate" spans that belong to this session.
+        # The generate span records session_id as an attribute (block F).
+        matches = [
+            s for s in spans
+            if s.get("name") == "generate"
+            and s.get("attributes", {}).get("session_id") == session_id
+        ]
+
+        if not matches:
+            return None
+
+        # Return the most recent match (last by start time, or last in list).
+        # spans are typically ordered newest-first from Phoenix.
+        attrs = matches[0].get("attributes", {})
+        return {
+            "prompt_tokens": int(attrs.get("prompt_tokens", 0)),
+            "cached_tokens": int(attrs.get("cached_tokens", 0)),
+            "output_tokens": int(attrs.get("output_tokens", 0)),
+            "ttft_ms": float(attrs.get("ttft_ms", 0.0)),
+            "caching_available": bool(attrs.get("caching_available", False)),
+        }
     except Exception as exc:
         print(f"[WARN] Could not fetch span from Phoenix: {exc}", file=sys.stderr)
     return None

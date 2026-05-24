@@ -100,13 +100,16 @@ class TestQueryCostArithmetic:
         assert cost.savings_usd == 0.0
 
     def test_cached_cannot_exceed_prompt(self) -> None:
-        # cached > prompt — should be clamped to prompt
+        # cached > prompt — cost arithmetic uses the clamped value (500)
         cost = QueryCost(model=_FLASH, prompt_tokens=500, cached_tokens=1_000, output_tokens=0)
         assert cost.non_cached_input_tokens == 0
-        assert cost.cached_tokens == 1_000  # stored as-is
-        # But the effective cached in the calculation is clamped
+        assert cost.cached_tokens == 1_000  # raw field stored as-is (API value)
+        # Effective cached in calculations is clamped to prompt_tokens (500)
         assert cost.input_usd == 0.0
         assert cost.cached_usd == pytest.approx(500 / 1e6 * 0.075)
+        # savings_usd must also use the clamped value, not the raw 1000
+        expected_savings = 500 / 1e6 * (0.30 - 0.075)  # full_price - cached_price at 500 tokens
+        assert pytest.approx(cost.savings_usd, rel=1e-6) == expected_savings
 
 
 # ---------------------------------------------------------------------------
