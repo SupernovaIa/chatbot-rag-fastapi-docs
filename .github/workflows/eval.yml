@@ -110,7 +110,10 @@ jobs:
               psql -h localhost -U postgres -d chatbot_rag -v ON_ERROR_STOP=1 -f /w/chunks_dump.sql
           else
             echo "Index cache MISS — uploading corpus and embedding chunks."
-            ( cd backend && uv run python ../scripts/upload_corpus.py && uv run python ../scripts/index_corpus.py )
+            # Run from the repo root: upload_corpus resolves the corpus dir
+            # relative to CWD, so it must see ./corpus (not ./backend/corpus).
+            uv run --project backend python scripts/upload_corpus.py
+            uv run --project backend python scripts/index_corpus.py
             docker run --rm --network host -e PGPASSWORD=postgres \
               pgvector/pgvector:pg17 \
               pg_dump -h localhost -U postgres -d chatbot_rag --data-only --table=chunks > chunks_dump.sql
