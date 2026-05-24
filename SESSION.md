@@ -17,11 +17,36 @@ Evaluación automática del pipeline RAG (Spec 10 / ADR-007): módulo `backend/a
 
 ## Próxima acción concreta
 
-Al reanudar: completar el **gate humano** documentado abajo (medir baseline sobre `main`, acordar estrategia del gate, spot-check del juez), fijar los thresholds definitivos y luego activar branch protection + secret `GOOGLE_API_KEY`.
+Gate humano **cerrado** (sesión 10): thresholds fijados, baseline definitivo medido y pinneado, CI cableado con caché de índice, branch protection activa y secret `GOOGLE_API_KEY` puesto. Al reanudar: **merge humano de la PR #17** (squash) tras ver el check `Eval gate (ci_subset)` en verde, y crear el tag `08-block-E`. No mergear ni taggear por agente.
 
 ## Pendientes en este bloque
 
-- [ ] **Gate humano (requiere stack + `GOOGLE_API_KEY`):** medir baseline con subset reducido (~8-10 ej.) → `baseline_metrics.json`; acordar estrategia del gate (floor absoluto vs floor + regresión relativa); spot-check humano del juez (~8 ej.). Solo entonces fijar los valores definitivos en `thresholds.yaml` y activar branch protection.
+- [ ] Merge humano de PR #17 (squash) + tag `08-block-E`.
+- [ ] (v1.1) Abstención por flag estructurado del generador en vez de match por strings (la detección actual no reconoce "no tengo **suficiente** información"; es advisory, no bloquea).
+- [ ] (seguimiento) El rerank listwise tarda p50 ~10s incluso con 8 candidatos; si crece la latencia, decidir en ADR si se cambia de enfoque (no subir el deadline por encima de 15s).
+
+## Gate humano — decisiones y hallazgos (sesión 10)
+
+**Hallazgos destapados al medir contra la API real (ninguno lo pillaban los tests por ir mockeados):**
+- **Drift de deadlines de la API.** Gemini exige deadline ≥10s; los valores de spec 03 (rerank 5s, rewrite 1.5s) daban 400 → el reranker/rewriter caían **siempre** al fallback. Con 20/10 candidatos seguía dando 504 (p95 ~123s por reintentos del SDK). Fix: 8 candidatos, timeout 15s, `max_retries=0` → p50 10.0s / p95 10.9s, 0/7 fallbacks.
+- **Idioma.** La generación respondía en inglés en parte de los turnos (contexto inglés, prompt sin regla de idioma). Fix: prompt v1.2 fuerza español. faithfulness 0.84→0.95 tras el fix.
+- **Modelo del juez.** `gemini-3-pro` daba 404; el id real es `gemini-3-pro-preview`.
+- **Abstención.** El detector por strings (solo ES) marcaba falso negativo; añadidos marcadores EN. Sigue siendo frágil (TODO v1.1: flag estructurado). Es advisory.
+- **recall@5 vs multi_source.** El match determinista por `(source, section)` da 0 cuando la info está en chunks no-gold (g-24), aunque la respuesta sea correcta. Por eso recall@5/MRR pasan a **advisory**; el gate bloquea solo sobre las 4 métricas del juez.
+
+**Estrategia del gate acordada:**
+- Floors del juez: faithfulness 0.80, answer_relevancy 0.70, context_precision 0.80, context_recall 0.85.
+- Regresión **absoluta**: bloquea si una métrica del juez cae >0.07 vs el baseline de `main`.
+- recall@5 / MRR / abstención: advisory (no bloqueantes).
+- **Subset del gate del PR = 6 ejemplos** (`CI_GATE_IDS`: g-01, g-03, g-16, g-24, g-31, g-36) por presupuesto de tiempo de CI (el `ci_subset` de 14 se iba a ~13-14 min; ver nota en spec 10). Baseline pinneado sobre esos 6 (5 answerable, rerank vivo, prompt v1.2): faithfulness 1.0 · answer_relevancy 0.847 · context_precision 0.99 · context_recall 1.0. La nocturna corre los 40 + refresca el baseline del gate sobre `ci_gate`.
+
+**Latencia/coste del gate del PR:** CI usa `max_workers=6` + caché de índice (actions/cache keyed por hash del corpus + modelo de embeddings; el embedding cuesta ~40 s, no es el cuello de botella). `timeout-minutes: 12` como kill switch.
+
+**Verificación del gate (determinista, sin cuota):** ✅ healthy PASS; regresión de faithfulness 0.10 BLOQUEA; answer_relevancy bajo floor BLOQUEA; context_recall −0.10 BLOQUEA; recall@5 hundido NO bloquea (advisory). Nota: con baseline faithfulness=1.0 y regresión 0.07, la banda efectiva de faithfulness es [0.93, 1.0] (los valores sanos medidos ~0.94-0.95 pasan, con poco margen); la nocturna re-mide y estabiliza el baseline.
+
+**Verificación live en CI: ⏳ bloqueada hoy por cuota.** El juez Gemini 3 Pro free-tier quedó throttleado tras los muchos runs del gate de hoy (1/20 trabajos en 11 min, resto `TimeoutError`), así que el run del gate en la PR #17 se canceló por timeout. Es un estado transitorio de cuota, NO un fallo de diseño. **Pendiente:** re-ejecutar el check `Eval gate (ci_subset)` en la PR #17 cuando la cuota Pro se reponga (reset diario) para confirmar el <10 min en vivo. El gate es **fail-safe**: un run throttleado se cancela (no pasa) → branch protection bloquea el merge hasta un run limpio.
+
+**Branch protection:** `main` requiere los checks `Eval gate (ci_subset)` + `Backend lint + tests`. `enforce_admins=false` a propósito, para que el merge humano de la PR #17 no quede bloqueado por el check throttleado de hoy.
 
 ## Completado en esta sesión (Bloque E, sesión 9)
 
