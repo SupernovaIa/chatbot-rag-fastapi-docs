@@ -6,6 +6,25 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y 
 
 ## [No publicado]
 
+### Añadido (Bloque EV2 — Retrieval gating, hacia v1.2.0)
+
+- `backend/app/chat/intent.py` — `IntentGate`, clasificador de intención sobre Gemini Flash (spec 14, ADR-013) que decide `needs_retrieval` antes del pipeline `rewrite→retrieve→rerank`. Puerto fino propio (recibe un `ChatLLMPort`), prompt versionado, parser JSON tolerante a fences/prosa, **fail-open hacia retrieve** ante cualquier error. `IntentVerdict(needs_retrieval, reason, failed_open)`.
+- `prompts/intent_gate.md` v1.0 — prompt del gate: categorías que saltan (saludo, agradecimiento, meta-conversación, follow-up resoluble con historial) vs. recuperar (cualquier pregunta técnica de FastAPI); historial e input delimitados como datos; salida JSON; regla explícita "ante duda, retrieve".
+- `docs/adr/ADR-013-retrieval-gating.md` + `DECISIONS.md` — decisión: clasificador Flash **concurrente** con el guardrail de capa 2 (`asyncio.gather`), de modo que la latencia de entrada es `max(guardrail, intent)`, no la suma. Rechazados: heurístico (frágil ante lenguaje natural) y Flash secuencial (dobla la latencia de entrada).
+- `specs/14-retrieval-gating.md` — spec del evolutivo: goal, approach, criterios de aceptación, tests y riesgos.
+- `backend/tests/chat/test_intent.py` — parser, true/false, fail-open ante excepción, inyección de query/historial.
+
+### Cambiado (Bloque EV2)
+
+- `backend/app/chat/router.py` — el historial se carga **read-only antes** de crear la sesión (para que el gate resuelva follow-ups y un input hostil no cree sesión vacía). Guardrail e intent gate se lanzan **concurrentes** (`asyncio.create_task` + `await`); en bloqueo del guardrail se cancela el intent. Si el gate decide saltar: no se llama a `retrieve`, `citations=[]`, prompt sin contexto; atributos `retrieval_skipped`/`intent_reason`/`intent_failed_open` en el span `chat_turn`. Nueva dependencia `get_intent_gate` (sin `max_retries`, mismo cuidado que el guardrail para no convertir un 401 en 500).
+- `backend/app/chat/prompts.py` — `build_prompt_no_context(query, history)` para turnos saltados: reutiliza el **mismo** `system.md` v1.3 (capa 3 intacta) y solo cambia el turno humano (sin bloque `<context>`, respuesta conversacional).
+- `backend/app/config.py` — settings `intent_gating_enabled` (default True) e `intent_timeout_s` (10s).
+- `backend/tests/chat/test_router.py` / `test_prompts.py` — override de `get_intent_gate`; tests de turno saltado (no invoca retrieval, citas vacías) y turno técnico (sí recupera); `build_prompt_no_context` sin `<context>` y con system idéntico al RAG.
+
+### Notas (Bloque EV2)
+
+- **301 tests, todos verdes. Ruff limpio.** Verificación en vivo (curl: saludo salta / técnica recupera / follow-up) y eval gate como red de seguridad: pendientes del stack levantado / CI.
+
 ### Release v1.0.0 (Bloque Z — cierre operativo, no feature)
 
 - `docs/architecture/04-components.md` — C4 Level 3: componentes del backend (auth, chat, retrieval, indexing, security, evals, observability) y su mapa a bloques de construcción.
