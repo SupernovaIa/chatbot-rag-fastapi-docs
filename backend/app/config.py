@@ -56,6 +56,12 @@ class Settings(BaseSettings):
     generate_timeout_s: float = 60.0  # max wall-clock time for one generation
     history_window_n: int = 5  # sliding window: last N complete turns (ADR-005)
 
+    # Retrieval gating (spec 14 / ADR-013). Flash intent classifier that decides
+    # whether a turn needs the corpus; runs concurrently with the layer-2
+    # guardrail. Fail-open toward retrieve.
+    intent_gating_enabled: bool = True  # toggle (off → always retrieve)
+    intent_timeout_s: float = 10.0  # Flash intent classifier (>=10s API min)
+
     # Security (spec 09, defense in depth).
     guardrail_timeout_s: float = 10.0  # layer-2 Flash classifier (>=10s API min)
     rate_limit_per_minute: int = 30  # layer-5 per-user chat rate limit

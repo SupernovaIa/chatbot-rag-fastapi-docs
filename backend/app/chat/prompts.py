@@ -126,6 +126,38 @@ def build_prompt(
     ]
 
 
+def build_prompt_no_context(
+    query: str,
+    history: list[Turn],
+) -> list[SystemMessage | HumanMessage]:
+    """Build the message list for a turn that skips retrieval (spec 14, ADR-013).
+
+    Used for greetings, thanks, meta-questions and follow-ups answerable from
+    history. Reuses the *same* ``system.md`` (so the layer-3 security rules stay
+    in force) and only changes the human turn: no ``<context>`` block, just an
+    instruction to answer conversationally from history without inventing
+    documentation.
+    """
+    system = _load_system_prompt()
+    history_block = build_history_block(history)
+
+    human_parts: list[str] = [
+        "This message does not require looking up the FastAPI documentation. "
+        "Answer briefly and conversationally. If it refers to the conversation, "
+        "use the history below. Do not invent documentation or citations; if it "
+        "turns out to need documentation you don't have, say so and invite the "
+        "user to ask a specific FastAPI question.",
+    ]
+    if history_block:
+        human_parts.append(history_block)
+    human_parts.append(f"## Current message\n{query}")
+
+    return [
+        SystemMessage(content=system),
+        HumanMessage(content="\n\n".join(human_parts)),
+    ]
+
+
 def citations_from_candidates(candidates: list[Candidate]) -> list[Citation]:
     """Convert retrieval candidates to Citation objects for the SSE payload."""
     return [

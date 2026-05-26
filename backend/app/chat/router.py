@@ -57,8 +57,9 @@ from sse_starlette.sse import EventSourceResponse
 from app.auth.models import User
 from app.auth.router import current_active_user
 from app.chat.generator import StreamingSession, stream_chat
+from app.chat.intent import IntentGate
 from app.chat.models import Citation
-from app.chat.prompts import build_prompt, citations_from_candidates
+from app.chat.prompts import build_prompt, build_prompt_no_context, citations_from_candidates
 from app.chat.store import ChatHistoryStore
 from app.config import Settings, get_settings
 from app.observability.cost import compute_cost
@@ -157,6 +158,21 @@ def get_rerank_llm(settings: Settings = Depends(get_settings)) -> GeminiChatAdap
     )
 
 
+def get_intent_gate(settings: Settings = Depends(get_settings)) -> IntentGate:
+    """Retrieval-gating intent classifier backed by a Flash adapter (spec 14).
+
+    Same eager-client caveat as ``get_guardrail``: no ``max_retries`` kwarg, so
+    an unauthenticated request still gets a clean 401 instead of a 500. The gate
+    fails open toward *retrieve* on any error.
+    """
+    adapter = GeminiChatAdapter(
+        api_key=settings.google_api_key,
+        model=settings.gemini_flash_model,
+        timeout=settings.intent_timeout_s,
+    )
+    return IntentGate(adapter)
+
+
 def get_guardrail(settings: Settings = Depends(get_settings)) -> InputGuardrail:
     """Layer-2 guardrail backed by a Flash adapter (fail-fast, no SDK retries)."""
     # NB: do not pass max_retries here — that kwarg makes langchain build the
@@ -231,11 +247,14 @@ async def chat_endpoint(  # noqa: PLR0913
     rewrite_llm: GeminiChatAdapter = Depends(get_rewrite_llm),
     rerank_llm: GeminiChatAdapter = Depends(get_rerank_llm),
     guardrail: InputGuardrail = Depends(get_guardrail),
+    intent_gate: IntentGate = Depends(get_intent_gate),
 ) -> EventSourceResponse:
     """Stream a RAG response for *body.query*.
 
-    Pipeline: load history → rewrite → retrieve → rerank → build prompt →
-    stream generation → persist turn.
+    Pipeline: load history → [guardrail ∥ intent gate] → (retrieve → rerank |
+    skip) → build prompt → stream generation → persist turn. The intent gate
+    (spec 14, ADR-013) skips retrieval for greetings/thanks/meta/history-only
+    follow-ups; it runs concurrently with the layer-2 guardrail.
 
     The retrieval phases run synchronously in a thread-pool executor so they
     don't block the event loop. The generation phase is fully async (astream).
@@ -269,15 +288,47 @@ async def chat_endpoint(  # noqa: PLR0913
 
     try:
         # ------------------------------------------------------------------ #
-        # Layer 2: input guardrail. Runs before any retrieval/generation so a #
-        # hostile prompt never reaches the model or the corpus.               #
+        # Load history read-only BEFORE creating the session: the intent gate #
+        # needs it to resolve follow-ups, and a hostile turn must not create  #
+        # an empty session. New sessions (no session_id) start with no        #
+        # history.                                                            #
         # ------------------------------------------------------------------ #
-        if settings.security_guardrail_enabled:
-            verdict = await asyncio.to_thread(guardrail.classify, body.query)
+        if body.session_id is not None:
+            history_turns = await asyncio.to_thread(
+                store.load_history, body.session_id, settings.history_window_n
+            )
+        else:
+            history_turns = []
+        # Convert ChatTurn → retrieval.Turn (same shape, different dataclass)
+        history = [Turn(question=t.question, answer=t.answer) for t in history_turns]
+
+        # ------------------------------------------------------------------ #
+        # Input-path classifiers run CONCURRENTLY (ADR-013): the layer-2      #
+        # guardrail (security) and the retrieval-gating intent gate are both  #
+        # Flash calls. Launching them together makes the input latency        #
+        # max(guardrail, intent) instead of the sum.                          #
+        # ------------------------------------------------------------------ #
+        guardrail_task = (
+            asyncio.create_task(asyncio.to_thread(guardrail.classify, body.query))
+            if settings.security_guardrail_enabled
+            else None
+        )
+        intent_task = (
+            asyncio.create_task(asyncio.to_thread(intent_gate.classify, body.query, history))
+            if settings.intent_gating_enabled
+            else None
+        )
+
+        # Layer 2 first: a hostile input is blocked before anything else. On a
+        # block we cancel the (concurrent) intent task — its verdict is moot.
+        if guardrail_task is not None:
+            verdict = await guardrail_task
             chat_turn_span.set_attribute("guardrail_verdict", verdict.verdict.value)
             if verdict.failed_open:
                 chat_turn_span.set_attribute("guardrail_failed_open", True)
             if verdict.blocked:
+                if intent_task is not None:
+                    intent_task.cancel()
                 chat_turn_span.set_attribute("blocking_layer", int(BlockingLayer.GUARDRAIL))
                 log_incident(
                     layer=BlockingLayer.GUARDRAIL,
@@ -301,45 +352,53 @@ async def chat_endpoint(  # noqa: PLR0913
                     reason=verdict.reason or "suspicious input",
                 )
 
-        # 1. Resolve / create session
+        # Retrieval gating (spec 14): default to retrieve when the gate is off.
+        needs_retrieval = True
+        if intent_task is not None:
+            intent_verdict = await intent_task
+            needs_retrieval = intent_verdict.needs_retrieval
+            chat_turn_span.set_attribute("retrieval_skipped", not needs_retrieval)
+            chat_turn_span.set_attribute("intent_reason", intent_verdict.reason)
+            if intent_verdict.failed_open:
+                chat_turn_span.set_attribute("intent_failed_open", True)
+
+        # Resolve / create session (after the guardrail gate passed).
         session_id = await asyncio.to_thread(
             store.get_or_create_session, body.session_id, current_user.id
         )
 
-        # 2. Load history (sliding window N=5)
-        history_turns = await asyncio.to_thread(
-            store.load_history, session_id, settings.history_window_n
-        )
-        # Convert ChatTurn → retrieval.Turn (same shape, different dataclass)
-        history = [Turn(question=t.question, answer=t.answer) for t in history_turns]
+        # Retrieval pipeline OR no-context path, per the intent gate.
+        #   asyncio.to_thread copies the current context (including chat_turn_span
+        #   as current) so child spans are properly nested under chat_turn.
+        if needs_retrieval:
 
-        # 3. Run retrieval pipeline in thread pool (sync functions).
-        #    asyncio.to_thread copies the current context (including chat_turn_span
-        #    as current) so child spans are properly nested under chat_turn.
-        @traced("chat_retrieve")
-        def _run_retrieve() -> object:
-            return retrieve(
+            @traced("chat_retrieve")
+            def _run_retrieve() -> object:
+                return retrieve(
+                    query=body.query,
+                    embeddings=embeddings,
+                    searcher=searcher,
+                    rewrite_llm=rewrite_llm,
+                    rerank_llm=rerank_llm,
+                    history=history,
+                    candidates=settings.retrieval_candidates,
+                    top_k=settings.retrieval_top_k,
+                )
+
+            retrieval_result = await asyncio.to_thread(_run_retrieve)
+            citations: list[Citation] = citations_from_candidates(retrieval_result.candidates)
+            messages = build_prompt(
                 query=body.query,
-                embeddings=embeddings,
-                searcher=searcher,
-                rewrite_llm=rewrite_llm,
-                rerank_llm=rerank_llm,
                 history=history,
-                candidates=settings.retrieval_candidates,
-                top_k=settings.retrieval_top_k,
+                candidates=retrieval_result.candidates,
             )
+        else:
+            # Skipped turn: no corpus, no citations, conversational prompt that
+            # keeps the layer-3 system rules in force (build_prompt_no_context).
+            citations = []
+            messages = build_prompt_no_context(query=body.query, history=history)
 
-        retrieval_result = await asyncio.to_thread(_run_retrieve)
-
-        # 4. Prepare citations and prompt
-        citations: list[Citation] = citations_from_candidates(retrieval_result.candidates)
-        messages = build_prompt(
-            query=body.query,
-            history=history,
-            candidates=retrieval_result.candidates,
-        )
-
-        # 5. Best-effort turn_idx estimate for pre-streaming logging.
+        # Best-effort turn_idx estimate for pre-streaming logging.
         turn_idx_hint = await asyncio.to_thread(store.next_turn_idx, session_id)
 
     except Exception as exc:
