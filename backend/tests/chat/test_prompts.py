@@ -8,6 +8,7 @@ from app.chat.prompts import (
     build_context_block,
     build_history_block,
     build_prompt,
+    build_prompt_no_context,
     citations_from_candidates,
     system_prompt_hash,
 )
@@ -97,6 +98,38 @@ class TestBuildPrompt:
         candidates = [make_candidate("h1", section="Path Parameters")]
         messages = build_prompt("Q", [], candidates)
         assert "Path Parameters" in messages[1].content
+
+
+# ---------------------------------------------------------------------------
+# build_prompt_no_context (retrieval gating — spec 14)
+# ---------------------------------------------------------------------------
+
+
+class TestBuildPromptNoContext:
+    def test_returns_system_and_human(self) -> None:
+        messages = build_prompt_no_context("hola", [])
+        assert len(messages) == 2
+        assert isinstance(messages[0], SystemMessage)
+        assert isinstance(messages[1], HumanMessage)
+
+    def test_reuses_same_system_prompt_as_rag_path(self) -> None:
+        # Layer-3 rules must stay in force: identical system message.
+        rag = build_prompt("Q", [], [])
+        skipped = build_prompt_no_context("Q", [])
+        assert rag[0].content == skipped[0].content
+
+    def test_has_no_context_block(self) -> None:
+        messages = build_prompt_no_context("gracias", [])
+        assert "<context>" not in messages[1].content
+
+    def test_includes_history_when_provided(self) -> None:
+        history = [Turn(question="prior Q", answer="prior A")]
+        messages = build_prompt_no_context("¿qué te pregunté?", history)
+        assert "prior Q" in messages[1].content
+
+    def test_includes_query(self) -> None:
+        messages = build_prompt_no_context("UNIQUE_MSG", [])
+        assert "UNIQUE_MSG" in messages[1].content
 
 
 # ---------------------------------------------------------------------------
