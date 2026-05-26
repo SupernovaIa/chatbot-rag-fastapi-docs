@@ -127,6 +127,16 @@ def client(fake_store, monkeypatch) -> TestClient:
     dummy_guardrail.classify.return_value = GuardrailVerdict(Verdict.LEGITIMATE)
     app.dependency_overrides[get_guardrail] = lambda: dummy_guardrail
 
+    # Override the retrieval-gating intent gate to always retrieve by default
+    # (gating behaviour is exercised in TestRetrievalGating below). Without this
+    # the endpoint would build a real Flash adapter and hit the network.
+    from app.chat.intent import IntentGate, IntentVerdict
+    from app.chat.router import get_intent_gate
+
+    dummy_intent = MagicMock(spec=IntentGate)
+    dummy_intent.classify.return_value = IntentVerdict(needs_retrieval=True)
+    app.dependency_overrides[get_intent_gate] = lambda: dummy_intent
+
     # Override auth: inject a fake active user
     fake_user = MagicMock()
     fake_user.id = uuid4()
@@ -388,6 +398,61 @@ class TestDeleteSession:
     def test_404_for_unknown_session(self, client) -> None:
         response = client.delete(f"/chat/sessions/{uuid4()}")
         assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Retrieval gating (spec 14 / ADR-013)
+# ---------------------------------------------------------------------------
+
+
+class TestRetrievalGating:
+    def _set_intent(self, needs_retrieval: bool) -> None:
+        from app.chat.intent import IntentGate, IntentVerdict
+        from app.chat.router import get_intent_gate
+
+        g = MagicMock(spec=IntentGate)
+        g.classify.return_value = IntentVerdict(needs_retrieval=needs_retrieval)
+        app.dependency_overrides[get_intent_gate] = lambda: g
+
+    def test_skipped_turn_does_not_invoke_retrieval(
+        self, client, monkeypatch, fake_store
+    ) -> None:
+        self._set_intent(needs_retrieval=False)
+
+        def _boom(**kwargs):
+            raise AssertionError("retrieval must not run when the gate skips")
+
+        monkeypatch.setattr("app.chat.router.retrieve", _boom)
+
+        with patch("app.chat.generator.ChatGoogleGenerativeAI") as MockLLM:
+            MockLLM.return_value = _make_llm_mock(["Hello!"])
+            resp = client.post("/chat/", json={"query": "hola"})
+
+        assert resp.status_code == 200
+        events = _parse_sse(resp.text)
+        # Direct answer is streamed, citations are empty.
+        cit = next(e for e in events if e.get("type") == "citations")
+        assert cit["items"] == []
+        # Turn is still persisted (with no citations).
+        assert len(fake_store.saved_turns) == 1
+        assert fake_store.saved_turns[0]["answer"] == "Hello!"
+
+    def test_retrieving_turn_invokes_retrieval(self, client, monkeypatch) -> None:
+        self._set_intent(needs_retrieval=True)
+        called = {"v": False}
+
+        def _capturing_retrieve(**kwargs):
+            called["v"] = True
+            return _make_fake_retrieve()
+
+        monkeypatch.setattr("app.chat.router.retrieve", _capturing_retrieve)
+
+        with patch("app.chat.generator.ChatGoogleGenerativeAI") as MockLLM:
+            MockLLM.return_value = _make_llm_mock(["A grounded answer."])
+            resp = client.post("/chat/", json={"query": "how do path params work?"})
+
+        assert resp.status_code == 200
+        assert called["v"]
 
 
 # ---------------------------------------------------------------------------

@@ -4,20 +4,22 @@
 
 ## Bloque actual
 
-**Bloque:** EV1 (Evolutivo post-1.0 — borrado de conversaciones)
+**Bloque:** EV2 (Evolutivo post-1.0 — retrieval gating)
 **Estado:** in_progress
-**Fecha apertura:** 2026-05-25 (sesión 14)
-**Última actualización:** 2026-05-25 (sesión 14)
+**Fecha apertura:** 2026-05-26 (sesión 15)
+**Última actualización:** 2026-05-26 (sesión 15)
 
-> Bloque Z completado ✓ (release v1.0.0). El histórico de bloques anteriores en CHANGELOG.md.
+> Bloque EV1 completado ✓ (borrado de conversaciones, PR #22, tag `EV1-block`). Bloque Z completado ✓ (release v1.0.0). El histórico de bloques anteriores en CHANGELOG.md.
 
 ## Objetivo del bloque
 
-Primer evolutivo sobre el sistema congelado (v1.0.0): permitir **borrar conversaciones**, que hoy no es posible (solo existen `POST /chat` y `GET /chat/sessions[/{id}]`). Brownfield: la spec se escribe leyendo el diseño existente, sin ADR (no hay decisión arquitectónica que tomar). Alcance: `DELETE /chat/sessions/{id}` con el mismo scoping por usuario que el GET, botón de borrado con confirmación en `SessionSelector`, y tests del endpoint.
+Segundo evolutivo (cierre v1.2.0): **retrieval gating**. Antes del pipeline rewrite→retrieve→rerank, decidir si la consulta necesita recuperar contexto del corpus. Para saludos, agradecimientos, meta-preguntas sobre la propia conversación y follow-ups resolubles con el historial, saltar retrieval y responder directo. Objetivo medible: bajar latencia y coste por turno en los casos sin retrieval **sin que las evals de calidad regresen** (eval gate como red de seguridad antes de cerrar).
+
+Decisión arquitectónica (ADR-013): **clasificador Gemini Flash** (intención) que corre **concurrente** con el guardrail de capa 2 vía `asyncio.gather`, de modo que la latencia de la ruta de entrada es `max(guardrail, intent)` ≈ un round-trip, no la suma. Puerto fino propio (`IntentGate`) separado del guardrail, prompt versionado en `prompts/`, **fail-open hacia retrieve** (el falso salto es el fallo caro). Rechazados en el ADR: heurístico (frágil ante lenguaje natural/paráfrasis/idiomas) y Flash secuencial (dobla la latencia de entrada).
 
 ## Próxima acción concreta
 
-Escribir `specs/` del evolutivo → implementar `DELETE /chat/sessions/{id}` + método de store → verificar en vivo con curl (dos usuarios: propia 200 / ajena 403 / inexistente 404) ANTES de tocar el frontend → botón en `SessionSelector` → tests. Cierre: commits divididos, abrir PR y parar (gate humano).
+Escribir `specs/14-retrieval-gating.md` + `docs/adr/ADR-013-retrieval-gating.md` → implementar `IntentGate` (puerto + adaptador Flash + prompt) → cablear concurrencia `gather(guardrail, intent)` en `router.py` + camino de prompt sin contexto para turnos saltados (sin tocar reglas capa 3 de system v1.3) → verificar en vivo (saludo salta / pregunta técnica recupera / follow-up) → tests con Gemini mockeado → eval gate. Cierre: commits divididos, abrir PR y parar (gate humano).
 
 ## Pendientes en este bloque
 
