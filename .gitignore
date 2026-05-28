@@ -33,3 +33,7 @@ corpus/**/evals/REVIEW.md
 /eval_full_metrics.json
 # Dump del índice pgvector cacheado en CI (actions/cache), no es deliverable.
 /chunks_dump.sql
+
+# Artefactos de LogBook (estado interno y docs generadas, no deliverables)
+.logbook/
+logbook/
